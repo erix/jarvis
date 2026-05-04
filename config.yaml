@@ -1,0 +1,70 @@
+universe:
+  sp500_wikipedia_url: "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+  benchmarks: [SPY, QQQ, IWM, DIA, XLK, XLF, XLV, XLE, XLI, XLC, XLY, XLP, XLB, XLRE, XLU, "^VIX", TLT, HYG]
+  cache_ttl_days: 7
+
+data:
+  lookback_years: 3
+  db_path: "cache/jarvis.db"
+  cache_dir: "cache"
+  output_dir: "output"
+  filings_cache_dir: "cache/filings"
+
+sec:
+  user_agent: "Meridian Capital Partners teacup-inviter-4n@icloud.com"
+  rate_limit_per_sec: 10
+  base_url: "https://data.sec.gov"
+  submissions_url: "https://data.sec.gov/submissions"
+  company_facts_url: "https://data.sec.gov/api/xbrl/companyfacts"
+
+market_data:
+  provider_priority: ["fmp", "polygon", "yfinance"]
+  retry_max: 3
+  retry_backoff_base: 2.0
+
+logging:
+  level: INFO
+  file: "output/logs/run.log"
+  format: "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+
+scoring:
+  weights:
+    momentum: 0.20
+    quality: 0.15
+    value: 0.15
+    revisions: 0.15
+    insider: 0.10
+    growth: 0.10
+    short_interest: 0.10
+    institutional: 0.05
+  regime:
+    low_vix_threshold: 15
+    high_vix_threshold: 25
+    low_vix_adjustments:
+      momentum: +0.05
+      growth: +0.05
+      value: -0.05
+      short_interest: -0.05
+    high_vix_adjustments:
+      quality: +0.05
+      value: +0.05
+      momentum: -0.05
+      growth: -0.05
+  long_candidates_per_sector: 30
+  short_candidates_per_sector: 30
+  output_csv: "output/scored_universe_latest.csv"
+  crowding_output: "output/crowding_alerts.json"
+
+portfolio:
+  num_longs: 20
+  num_shorts: 20
+  max_position_pct: 5.0          # Max % of AUM per position
+  max_sector_pct: 25.0           # Max % of AUM per sector
+  gross_exposure: 165.0          # Total long + |short| exposure
+  net_exposure_min: -10.0        # Net long/short exposure range
+  net_exposure_max: 15.0
+  max_portfolio_beta: 0.20
+  turnover_budget_pct: 30.0      # Annual turnover cap
+  mvo_risk_aversion: 1.0
+  rebalance_freq_days: 7
+  aum: 10_000_000                # $10M AUM for position sizing
