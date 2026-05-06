@@ -85,33 +85,14 @@ Length: 300-500 words."""
 
     try:
         from analysis.api_client import APIClient
+
         client = APIClient()
-        result = client.analyze(
-            ticker="PORTFOLIO",
-            analyzer_type="weekly_commentary",
+        text = client.chat_text(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             max_tokens=1024,
-            cache=False,
+            analyzer_type="weekly_commentary",
         )
-        if result is None:
-            # API returned non-JSON — try raw text approach
-            import openai, os as _os
-            raw_client = openai.OpenAI(
-                api_key=_os.getenv("OPENROUTER_API_KEY"),
-                base_url="https://openrouter.ai/api/v1",
-            )
-            resp = raw_client.chat.completions.create(
-                model="anthropic/claude-sonnet-4-6",
-                max_tokens=1024,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-            )
-            text = resp.choices[0].message.content or ""
-        else:
-            text = result.get("commentary", json.dumps(result))
     except Exception as exc:
         logger.error("Weekly commentary generation failed: %s", exc)
         text = f"[Commentary generation failed: {exc}]"

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Layer 3 Entry Point — Claude AI Analysis
+Layer 3 Entry Point — AI Analysis
 Usage:
   python run_analysis.py --estimate-cost          # Estimate cost only
   python run_analysis.py --ticker AAPL            # Single ticker
@@ -23,7 +23,7 @@ load_dotenv(_ENV_PATH)
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from analysis.api_client import APIClient, DEFAULT_MODEL
+from analysis.api_client import APIClient, DEFAULT_MODEL, DEFAULT_PROVIDER
 from analysis.cost_tracker import CostTracker
 from analysis import cache as analysis_cache
 from analysis import (
@@ -193,13 +193,15 @@ def _get_sector_tickers(sector: str) -> list[str]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="JARVIS Layer 3 — Claude AI Analysis")
+    parser = argparse.ArgumentParser(description="JARVIS Layer 3 — AI Analysis")
     parser.add_argument("--estimate-cost", action="store_true", help="Estimate cost only")
     parser.add_argument("--ticker", help="Analyze a single ticker")
     parser.add_argument("--sector", help="Analyze all tickers in a sector")
     parser.add_argument("--candidates", action="store_true", help="Analyze top 20 long + 20 short")
     parser.add_argument("--force", action="store_true", help="Bypass cache")
-    parser.add_argument("--model", default=DEFAULT_MODEL, help=f"Claude model (default: {DEFAULT_MODEL})")
+    parser.add_argument("--provider", default=DEFAULT_PROVIDER, choices=["openrouter", "codex"],
+                        help=f"AI provider (default: {DEFAULT_PROVIDER})")
+    parser.add_argument("--model", default=DEFAULT_MODEL, help=f"AI model (default: {DEFAULT_MODEL})")
     parser.add_argument("--cost-ceiling", type=float, default=10.0, help="Hard cost ceiling in $ (default: $10)")
     parser.add_argument("--no-reports", action="store_true", help="Skip markdown report generation")
     args = parser.parse_args()
@@ -209,7 +211,8 @@ def main() -> None:
     start_time = time.time()
 
     logger.info("=" * 60)
-    logger.info("JARVIS Layer 3 — Claude AI Analysis starting")
+    logger.info("JARVIS Layer 3 — AI Analysis starting")
+    logger.info("Provider: %s", args.provider)
     logger.info("Model: %s", args.model)
     logger.info("=" * 60)
 
@@ -268,7 +271,7 @@ def main() -> None:
     # Set up API client and cost tracker
     cost_tracker = CostTracker(ceiling=args.cost_ceiling)
     try:
-        client = APIClient(cost_tracker=cost_tracker, model=args.model)
+        client = APIClient(cost_tracker=cost_tracker, model=args.model, provider=args.provider)
     except RuntimeError as e:
         logger.error("API client error: %s", e)
         sys.exit(1)
@@ -366,7 +369,10 @@ def main() -> None:
     print()
     print("=" * 60)
     print(f"Layer 3 complete: {len(ticker_results)} tickers analyzed")
-    print(f"Claude API calls: {cost_summary['api_calls']} | Cost: ${cost_summary['total_cost']:.4f}")
+    print(
+        f"AI calls: {cost_summary['api_calls']} | "
+        f"API cost: ${cost_summary['total_cost']:.4f} | Provider: {args.provider}"
+    )
     print(f"Cache hits: {cache_hits} | Misses: {cache_misses}")
     print(f"Reports generated: {reports_generated} → {output_dir}")
     print(f"Errors: {errors}")
@@ -389,7 +395,7 @@ def main() -> None:
     print("=" * 60)
 
     logger.info(
-        "Layer 3 complete: %d tickers, %d API calls, $%.4f cost, %d reports in %dm %ds",
+        "Layer 3 complete: %d tickers, %d AI calls, $%.4f API cost, %d reports in %dm %ds",
         len(ticker_results), cost_summary["api_calls"], cost_summary["total_cost"],
         reports_generated, minutes, seconds,
     )

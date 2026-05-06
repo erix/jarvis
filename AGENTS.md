@@ -19,15 +19,16 @@ Entry points are top-level `run_*.py` scripts. Configuration is in `config.yaml`
 Use a virtual environment and install the repo requirements:
 
 ```bash
-python3 -m venv .venv
+./scripts/setup_environment.sh
 source .venv/bin/activate
-pip install -r requirements.txt
 ```
 
 Common environment variables:
 
 ```bash
+JARVIS_AI_PROVIDER=openrouter  # openrouter | codex
 OPENROUTER_API_KEY=
+CODEX_MODEL=gpt-5.5
 IB_GATEWAY_HOST=
 IB_GATEWAY_PORT=4001
 IB_CLIENT_ID=1
@@ -36,6 +37,9 @@ FMP_API_KEY=
 FRED_API_KEY=
 JARVIS_MODEL=anthropic/claude-sonnet-4-6
 ```
+
+For Codex subscription-backed AI calls, run `python run_codex_login.py` first or use the dashboard Settings tab.
+This stores OAuth tokens under `.jarvis/`, which is gitignored.
 
 ## Common Commands
 

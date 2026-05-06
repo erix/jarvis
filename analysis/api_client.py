@@ -1,4 +1,4 @@
-"""OpenRouter API client (OpenAI-compatible) with retry and JSON extraction."""
+"""AI provider client with OpenRouter and OpenAI Codex OAuth support."""
 import json
 import logging
 import os
@@ -8,27 +8,50 @@ from typing import Any, Optional
 
 import openai
 
+from .ai_settings import resolve_ai_model, resolve_ai_provider
+
 logger = logging.getLogger(__name__)
 
-# OpenRouter pricing per 1M tokens for anthropic/claude-sonnet-4-6
+# OpenRouter pricing per 1M tokens for anthropic/claude-sonnet-4-6.
 _PRICE_INPUT = 3.00 / 1_000_000
 _PRICE_OUTPUT = 15.00 / 1_000_000
 
-DEFAULT_MODEL = os.getenv("JARVIS_MODEL", "anthropic/claude-sonnet-4-6")
+DEFAULT_PROVIDER = resolve_ai_provider()
+DEFAULT_MODEL = resolve_ai_model(DEFAULT_PROVIDER)
+
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
 
 
 class APIClient:
-    def __init__(self, cost_tracker=None, model: str = DEFAULT_MODEL):
-        api_key = os.getenv("OPENROUTER_API_KEY")
-        if not api_key:
-            raise RuntimeError("OPENROUTER_API_KEY not set")
-        self.client = openai.OpenAI(
-            api_key=api_key,
-            base_url="https://openrouter.ai/api/v1",
-            max_retries=0,  # We handle retries manually
-        )
-        self.model = model
+    def __init__(self, cost_tracker=None, model: Optional[str] = None, provider: Optional[str] = None):
+        self.provider = (provider or resolve_ai_provider()).lower()
+        self.model = model or resolve_ai_model(self.provider)
         self.cost_tracker = cost_tracker
+        self.client = self._build_client()
+
+    def _build_client(self):
+        if self.provider == "openrouter":
+            api_key = os.getenv("OPENROUTER_API_KEY")
+            if not api_key:
+                raise RuntimeError("OPENROUTER_API_KEY not set")
+            return openai.OpenAI(
+                api_key=api_key,
+                base_url=OPENROUTER_BASE_URL,
+                max_retries=0,  # We handle retries manually
+            )
+
+        if self.provider == "codex":
+            from .codex_oauth import get_valid_credentials
+
+            credentials = get_valid_credentials()
+            return openai.OpenAI(
+                api_key=credentials.access_token,
+                base_url=CODEX_BASE_URL,
+                max_retries=0,
+            )
+
+        raise RuntimeError(f"Unsupported AI provider: {self.provider}")
 
     def analyze(
         self,
@@ -39,30 +62,45 @@ class APIClient:
         max_tokens: int = 1024,
         cache: bool = True,
     ) -> Optional[dict]:
-        """Call Claude via OpenRouter and return parsed JSON dict, or None on failure."""
-        # OpenRouter handles prompt caching internally — no explicit cache_control needed
+        """Call configured provider and return parsed JSON dict, or None on failure."""
+        text = self.chat_text(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            max_tokens=max_tokens,
+            ticker=ticker,
+            analyzer_type=analyzer_type,
+        )
+        return self._extract_json(text)
+
+    def chat_text(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int = 1024,
+        ticker: str = "PORTFOLIO",
+        analyzer_type: str = "chat",
+    ) -> str:
+        """Call configured provider and return raw text."""
         for attempt in range(3):
             try:
-                response = self.client.chat.completions.create(
-                    model=self.model,
+                if self.provider == "codex":
+                    return self._call_codex_responses(
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        max_tokens=max_tokens,
+                    )
+                return self._call_openrouter_chat(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
                     max_tokens=max_tokens,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    extra_headers={
-                        "HTTP-Referer": "https://jarvis.internal",
-                        "X-Title": "JARVIS Hedge Fund",
-                    },
                 )
-                if self.cost_tracker:
-                    self.cost_tracker.record(response.usage)
-
-                text = response.choices[0].message.content or ""
-                return self._extract_json(text)
 
             except openai.APIError as e:
                 status_code = getattr(e, "status_code", None)
+                if self.provider == "codex" and status_code in (401, 403):
+                    self._refresh_codex_client()
+                    if attempt < 2:
+                        continue
                 if status_code and status_code >= 500:
                     logger.warning("[%s] Server error %s, attempt %d/3", ticker, status_code, attempt + 1)
                     time.sleep(2 ** attempt)
@@ -78,7 +116,64 @@ class APIClient:
                 continue
 
         logger.error("[%s/%s] All retries exhausted", ticker, analyzer_type)
-        return None
+        return ""
+
+    def _call_openrouter_chat(self, system_prompt: str, user_prompt: str, max_tokens: int) -> str:
+        response = self.client.chat.completions.create(
+            model=self.model,
+            max_tokens=max_tokens,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            extra_headers={
+                "HTTP-Referer": "https://jarvis.internal",
+                "X-Title": "JARVIS Hedge Fund",
+            },
+        )
+        if self.cost_tracker:
+            self.cost_tracker.record(response.usage)
+        return response.choices[0].message.content or ""
+
+    def _call_codex_responses(self, system_prompt: str, user_prompt: str, max_tokens: int) -> str:
+        response = self.client.responses.create(
+            model=self.model,
+            instructions=system_prompt,
+            input=user_prompt,
+            max_output_tokens=max_tokens,
+        )
+        text = getattr(response, "output_text", None)
+        if not text:
+            text = self._extract_responses_text(response)
+        if self.cost_tracker:
+            usage = getattr(response, "usage", None)
+            input_tokens = getattr(usage, "input_tokens", 0) if usage else self.estimate_tokens(user_prompt)
+            output_tokens = getattr(usage, "output_tokens", 0) if usage else self.estimate_tokens(text)
+            self.cost_tracker.record_subscription_call(
+                provider="codex",
+                input_tokens=input_tokens or 0,
+                output_tokens=output_tokens or 0,
+            )
+        return text
+
+    def _refresh_codex_client(self) -> None:
+        from .codex_oauth import load_credentials, refresh_credentials
+
+        credentials = load_credentials()
+        if not credentials:
+            return
+        refresh_credentials(credentials)
+        self.client = self._build_client()
+
+    @staticmethod
+    def _extract_responses_text(response: Any) -> str:
+        chunks: list[str] = []
+        for item in getattr(response, "output", []) or []:
+            for content in getattr(item, "content", []) or []:
+                text = getattr(content, "text", None)
+                if text:
+                    chunks.append(text)
+        return "\n".join(chunks)
 
     @staticmethod
     def _extract_json(text: str) -> Optional[dict]:

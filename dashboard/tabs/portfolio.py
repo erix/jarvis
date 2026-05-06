@@ -163,34 +163,22 @@ def _build_system_snapshot() -> str:
 
 
 def _call_jarvis(question: str, context_json: str) -> str:
-    """Send question + system snapshot to Claude, return text response."""
+    """Send question + system snapshot to configured AI provider, return text response."""
     try:
-        import openai as _oi
-        api_key = os.getenv("OPENROUTER_API_KEY")
-        if not api_key:
-            return "OPENROUTER_API_KEY not set — set it to enable JARVIS chat."
-        client = _oi.OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
-        resp = client.chat.completions.create(
-            model="anthropic/claude-sonnet-4-6",
+        from analysis.api_client import APIClient
+
+        client = APIClient()
+        return client.chat_text(
+            system_prompt=(
+                "You are JARVIS, the AI investment analyst for Meridian Capital Partners, "
+                "a long/short equity hedge fund. You have access to the live portfolio state "
+                "shown in the context JSON. Answer questions directly and concisely. "
+                "Be analytical and precise. Use numbers when they're available in the data."
+            ),
+            user_prompt=f"Portfolio context:\n{context_json}\n\nQuestion: {question}",
             max_tokens=800,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are JARVIS, the AI investment analyst for Meridian Capital Partners, "
-                        "a long/short equity hedge fund. You have access to the live portfolio state "
-                        "shown in the context JSON. Answer questions directly and concisely. "
-                        "Be analytical and precise. Use numbers when they're available in the data."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": f"Portfolio context:\n{context_json}\n\nQuestion: {question}",
-                },
-            ],
-            extra_headers={"HTTP-Referer": "https://jarvis.internal", "X-Title": "JARVIS"},
-        )
-        return resp.choices[0].message.content or "No response."
+            analyzer_type="dashboard_chat",
+        ) or "No response."
     except Exception as exc:
         return f"Error calling JARVIS: {exc}"
 

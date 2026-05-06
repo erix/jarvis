@@ -48,9 +48,8 @@ cd /home/erix/Projects/jarvis   # or your preferred path
 ### 2. Virtual Environment
 
 ```bash
-python3 -m venv .venv
+./scripts/setup_environment.sh
 source .venv/bin/activate
-pip install -r requirements.txt
 ```
 
 ### 3. Environment Variables
@@ -59,7 +58,9 @@ Copy `.env.example` to `.env` and set your keys:
 
 ```bash
 # Required for Layer 3 (Claude analysis) and Layer 7 (JARVIS chat)
+JARVIS_AI_PROVIDER=openrouter     # openrouter | codex
 OPENROUTER_API_KEY=sk-or-v1-...
+CODEX_MODEL=gpt-5.5              # Used when JARVIS_AI_PROVIDER=codex
 
 # Required for Layer 6 (IBKR execution)
 IB_GATEWAY_HOST=192.168.11.202
@@ -74,6 +75,17 @@ FRED_API_KEY=
 # Model selection (OpenRouter naming)
 JARVIS_MODEL=anthropic/claude-sonnet-4-6
 ```
+
+To use a Codex subscription instead of OpenRouter API calls:
+
+```bash
+python run_codex_login.py
+export JARVIS_AI_PROVIDER=codex
+export JARVIS_MODEL=gpt-5.5
+```
+
+Codex OAuth tokens are stored locally in `.jarvis/codex_oauth.json` and are gitignored.
+You can also do this from the dashboard under **VII Settings**.
 
 ### 4. Initialise Database
 

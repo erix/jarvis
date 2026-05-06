@@ -1,4 +1,4 @@
-"""Daily LP letter generator — calls Claude via OpenRouter."""
+"""Daily LP letter generator — calls the configured AI provider."""
 import json
 import logging
 import os
@@ -110,28 +110,17 @@ Requirements:
 
 Write ONLY the letter body (no letterhead, no JSON). Plain prose."""
 
-    body = "[Letter generation requires OPENROUTER_API_KEY environment variable]"
+    body = "[Letter generation requires AI provider configuration]"
     try:
-        import openai as _oi
-        api_key = os.getenv("OPENROUTER_API_KEY")
-        if api_key:
-            client = _oi.OpenAI(
-                api_key=api_key,
-                base_url="https://openrouter.ai/api/v1",
-            )
-            resp = client.chat.completions.create(
-                model="anthropic/claude-sonnet-4-6",
-                max_tokens=1200,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                extra_headers={
-                    "HTTP-Referer": "https://jarvis.internal",
-                    "X-Title": "JARVIS Hedge Fund",
-                },
-            )
-            body = resp.choices[0].message.content or body
+        from analysis.api_client import APIClient
+
+        client = APIClient()
+        body = client.chat_text(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            max_tokens=1200,
+            analyzer_type="lp_letter",
+        ) or body
     except Exception as exc:
         logger.error("LP letter generation failed: %s", exc)
         body = f"[Letter generation failed: {exc}]"

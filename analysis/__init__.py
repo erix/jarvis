@@ -1,1 +1,1 @@
-"""JARVIS Layer 3 — Claude AI Analysis."""
+"""JARVIS Layer 3 — AI analysis."""

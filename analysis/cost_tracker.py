@@ -35,6 +35,23 @@ class CostTracker:
                 self.ceiling, self.api_calls, self.total_cost,
             )
 
+    def record_subscription_call(
+        self,
+        provider: str,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+    ) -> None:
+        """Track subscription-backed model calls without adding API dollar cost."""
+        self.api_calls += 1
+        self.input_tokens += input_tokens
+        self.output_tokens += output_tokens
+        logger.info(
+            "%s subscription call recorded: input_tokens=%d output_tokens=%d API cost=$0.0000",
+            provider,
+            input_tokens,
+            output_tokens,
+        )
+
     @property
     def ceiling_hit(self) -> bool:
         return self._ceiling_hit

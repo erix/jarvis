@@ -38,6 +38,7 @@ TABS = [
     "IV  PERFORMANCE",
     "V  EXECUTION",
     "VI  LETTER",
+    "VII  SETTINGS",
 ]
 
 if "active_tab" not in st.session_state:
@@ -78,4 +79,7 @@ elif active == TABS[4]:
     render()
 elif active == TABS[5]:
     from dashboard.tabs.letter import render
+    render()
+elif active == TABS[6]:
+    from dashboard.tabs.settings import render
     render()
