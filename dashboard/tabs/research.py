@@ -7,10 +7,12 @@ import os
 import sqlite3
 
 import streamlit as st
+from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "cache", "jarvis.db")
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 FACTOR_COLS = [
     ("momentum", "momentum_score"),
@@ -24,6 +26,10 @@ FACTOR_COLS = [
 ]
 
 
+def _db_mtime() -> float:
+    return os.path.getmtime(DB_PATH) if os.path.exists(DB_PATH) else 0.0
+
+
 def _score_pct(score: float | None) -> float:
     return float(score or 0.0)
 
@@ -33,14 +39,17 @@ def _score_unit(score: float | None) -> float:
 
 
 @st.cache_data(ttl=300)
-def _load_scores() -> list[dict]:
+def _load_scores(db_mtime: float = 0.0) -> list[dict]:
     if not os.path.exists(DB_PATH):
         return []
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT s.ticker, s.composite_score, s.date AS scored_at, "
+            "SELECT s.ticker, s.composite_raw, s.composite_score, s.date AS scored_at, "
+            "s.momentum_score, s.value_score, s.quality_score, s.growth_score, "
+            "s.revisions_score, s.short_interest_score, s.insider_score, s.institutional_score, "
+            "s.is_long_candidate, s.is_short_candidate, "
             "t.sector, f.market_cap "
             "FROM scores s LEFT JOIN tickers t ON s.ticker=t.symbol "
             "LEFT JOIN fundamentals f ON f.rowid = ("
@@ -49,7 +58,7 @@ def _load_scores() -> list[dict]:
             "  LIMIT 1"
             ") "
             "WHERE s.date = (SELECT MAX(s2.date) FROM scores s2 WHERE s2.ticker=s.ticker) "
-            "ORDER BY s.composite_score DESC LIMIT 200"
+            "ORDER BY s.composite_score DESC"
         ).fetchall()
         conn.close()
         seen = set()
@@ -68,14 +77,21 @@ def _load_scores() -> list[dict]:
 
 
 @st.cache_data(ttl=300)
-def _load_candidates() -> dict:
+def _load_candidates(db_mtime: float = 0.0) -> dict:
     """Return top 10 long and top 10 short candidates with position data."""
-    scores = _load_scores()
+    scores = _load_scores(db_mtime)
     if not scores:
         return {"long": [], "short": []}
 
-    longs = scores[:10]
-    shorts = sorted(scores, key=lambda x: x.get("composite_score") or 0)[:10]
+    longs = sorted(
+        [s for s in scores if int(s.get("is_long_candidate") or 0) == 1],
+        key=lambda x: x.get("composite_raw") or x.get("composite_score") or 0,
+        reverse=True,
+    )[:10]
+    shorts = sorted(
+        [s for s in scores if int(s.get("is_short_candidate") or 0) == 1],
+        key=lambda x: x.get("composite_raw") or x.get("composite_score") or 0,
+    )[:10]
 
     if not os.path.exists(DB_PATH):
         return {"long": longs, "short": shorts}
@@ -109,13 +125,10 @@ def _load_candidates() -> dict:
 
                 # Claude analysis from cache
                 try:
-                    analysis = conn.execute(
-                        "SELECT result_json FROM analysis_cache WHERE ticker=? "
-                        "ORDER BY created_at DESC LIMIT 1",
-                        (ticker,),
-                    ).fetchone()
-                    if analysis:
-                        c["claude_analysis"] = analysis["result_json"]
+                    from analysis.cache import get_cached
+                    cached = get_cached(ticker, "dashboard_candidate")
+                    if cached:
+                        c["ai_analysis"] = cached
                 except Exception:
                     pass
         conn.close()
@@ -126,14 +139,27 @@ def _load_candidates() -> dict:
 
 
 @st.cache_data(ttl=300)
-def _load_factor_heatmap_data() -> tuple:
+def _load_factor_heatmap_data(db_mtime: float = 0.0) -> tuple:
     """Return (tickers, factor_names, matrix) for heatmap."""
-    scores = _load_scores()
+    scores = _load_scores(db_mtime)
     if not scores:
         return [], [], []
 
-    longs = [s["ticker"] for s in scores[:30]]
-    shorts = [s["ticker"] for s in sorted(scores, key=lambda x: x.get("composite_score") or 0)[:30]]
+    longs = [
+        s["ticker"]
+        for s in sorted(
+            [s for s in scores if int(s.get("is_long_candidate") or 0) == 1],
+            key=lambda x: x.get("composite_raw") or x.get("composite_score") or 0,
+            reverse=True,
+        )[:30]
+    ]
+    shorts = [
+        s["ticker"]
+        for s in sorted(
+            [s for s in scores if int(s.get("is_short_candidate") or 0) == 1],
+            key=lambda x: x.get("composite_raw") or x.get("composite_score") or 0,
+        )[:30]
+    ]
 
     tickers = longs + shorts
 
@@ -184,6 +210,130 @@ def _set_approval(ticker: str, status: str):
         conn.close()
     except Exception as exc:
         st.error(f"DB error: {exc}")
+
+
+def _factor_summary(c: dict) -> list[tuple[str, float]]:
+    rows = []
+    for label, col in FACTOR_COLS:
+        if c.get(col) is not None:
+            rows.append((label.replace("_", " ").title(), float(c[col])))
+    return rows
+
+
+def _analysis_payload(c: dict, side: str) -> dict:
+    return {
+        "ticker": c.get("ticker"),
+        "side": side,
+        "sector": c.get("sector"),
+        "composite_score": c.get("composite_score"),
+        "factors": {label: score for label, score in _factor_summary(c)},
+        "piotroski": c.get("piotroski"),
+        "altman_z": c.get("altman_z"),
+        "shares": c.get("shares"),
+        "price": c.get("current_price") or c.get("entry_price"),
+        "beta": c.get("beta"),
+    }
+
+
+def _run_candidate_analysis(c: dict, side: str, force: bool = False) -> dict:
+    ticker = c.get("ticker")
+    if not ticker:
+        return {"error": "Missing ticker"}
+
+    from analysis.cache import get_cached, set_cache
+
+    if not force:
+        cached = get_cached(ticker, "dashboard_candidate")
+        if cached:
+            return cached
+
+    load_dotenv(os.path.join(ROOT, ".env"))
+    from analysis.api_client import APIClient
+
+    payload = _analysis_payload(c, side)
+    system_prompt = (
+        "You are JARVIS, a long/short equity research analyst. Explain why a stock "
+        "is appearing in the top or bottom candidate list. Be concise, investment-focused, "
+        "and explicit about factor support and risks. Return valid JSON only."
+    )
+    user_prompt = (
+        "Analyze this candidate and return JSON with keys: thesis, factor_drivers, "
+        "risk_flags, decision_notes, confidence. Use 2-4 short bullet strings for "
+        "factor_drivers and risk_flags.\n\n"
+        f"{json.dumps(payload, default=str, indent=2)}"
+    )
+    client = APIClient()
+    text = client.chat_text(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        max_tokens=700,
+        ticker=ticker,
+        analyzer_type="dashboard_candidate",
+    )
+    if not text:
+        provider = os.getenv("JARVIS_AI_PROVIDER", "openrouter")
+        result = {
+            "error": (
+                f"No response from AI provider '{provider}'. Check the Settings tab, "
+                "run Codex login if using codex, or set OPENROUTER_API_KEY and "
+                "JARVIS_AI_PROVIDER=openrouter."
+            )
+        }
+        return result
+
+    result = APIClient._extract_json(text)
+    if not result:
+        result = {
+            "thesis": text.strip()[:1200],
+            "factor_drivers": [],
+            "risk_flags": [],
+            "decision_notes": "AI returned text instead of JSON; showing raw summary.",
+            "confidence": "unparsed",
+        }
+    set_cache(ticker, "dashboard_candidate", result, artifact=json.dumps(payload, sort_keys=True), ttl=168)
+    return result
+
+
+def _render_analysis_result(result: dict) -> None:
+    if result.get("error"):
+        st.error(result["error"])
+        return
+    if result.get("thesis"):
+        st.markdown(f"**Thesis**  \n{result['thesis']}")
+    if result.get("factor_drivers"):
+        st.markdown("**Factor Drivers**")
+        for item in result["factor_drivers"]:
+            st.markdown(f"- {item}")
+    if result.get("risk_flags"):
+        st.markdown("**Risk Flags**")
+        for item in result["risk_flags"]:
+            st.markdown(f"- {item}")
+    if result.get("decision_notes"):
+        st.markdown(f"**Decision Notes**  \n{result['decision_notes']}")
+    if result.get("confidence"):
+        st.caption(f"Confidence: {result['confidence']}")
+
+
+def _render_ai_expander(c: dict, side: str, idx: int) -> None:
+    ticker = c.get("ticker", "")
+    cached = c.get("ai_analysis")
+    label = f"{ticker} — AI analysis" if cached else f"{ticker} — analyze with AI"
+    with st.expander(label, expanded=bool(cached)):
+        if cached:
+            _render_analysis_result(cached)
+        else:
+            st.caption("Generate a concise explanation of why this name is in the candidate tail.")
+
+        button_label = "Re-run AI analysis" if cached else "Run AI analysis"
+        if st.button(button_label, key=f"ai_{ticker}_{side}_{idx}", use_container_width=True):
+            with st.spinner(f"Analyzing {ticker}..."):
+                try:
+                    result = _run_candidate_analysis(c, side, force=True)
+                    c["ai_analysis"] = result
+                    st.cache_data.clear()
+                    _render_analysis_result(result)
+                except Exception as exc:
+                    st.error(f"AI analysis failed: {exc}")
 
 
 def _render_candidate_card(c: dict, side: str, idx: int = 0):
@@ -252,33 +402,30 @@ def _render_candidate_card(c: dict, side: str, idx: int = 0):
                 st.cache_data.clear()
                 st.rerun()
 
-        # Claude analysis expander
-        if c.get("claude_analysis"):
-            with st.expander("Claude analysis"):
-                try:
-                    parsed = json.loads(c["claude_analysis"])
-                    st.json(parsed)
-                except Exception:
-                    st.markdown(str(c["claude_analysis"])[:1000])
+        _render_ai_expander(c, side, idx)
 
 
 def render():
     import plotly.graph_objects as go
     from dashboard.style import PLOTLY_LAYOUT, COLORS
 
-    candidates = _load_candidates()
+    db_mtime = _db_mtime()
+    candidates = _load_candidates(db_mtime)
 
     # KPI row
-    scores = _load_scores()
+    scores = _load_scores(db_mtime)
     if scores:
         top_score = _score_pct(scores[0]["composite_score"])
         bottom_score = _score_pct(scores[-1]["composite_score"])
     else:
         top_score = bottom_score = 0
 
+    long_count = sum(1 for s in scores if int(s.get("is_long_candidate") or 0) == 1)
+    short_count = sum(1 for s in scores if int(s.get("is_short_candidate") or 0) == 1)
+
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Long Candidates", 30 if scores else 0)
-    k2.metric("Short Candidates", 30 if scores else 0)
+    k1.metric("Long Candidates", long_count)
+    k2.metric("Short Candidates", short_count)
     k3.metric("Top Score", f"{top_score:.0f}")
     k4.metric("Bottom Score", f"{bottom_score:.0f}")
 
@@ -295,26 +442,22 @@ def render():
 
     # Factor heatmap
     st.markdown("### Factor Heatmap")
-    tickers, factor_names, matrix = _load_factor_heatmap_data()
+    tickers, factor_names, matrix = _load_factor_heatmap_data(db_mtime)
 
     if tickers and matrix:
         # Color: 0=red, 0.5=grey, 1=green
-        import numpy as np
-        z = np.array(matrix).T.tolist() if matrix else []
-        labels = tickers
-
         fig = go.Figure(go.Heatmap(
-            z=z,
-            x=labels,
-            y=factor_names,
+            z=matrix,
+            x=[name.replace("_", " ").title() for name in factor_names],
+            y=tickers,
             colorscale=[
                 [0.0, "#f43f5e"],
                 [0.5, "#1e2d45"],
                 [1.0, "#10b981"],
             ],
             zmin=0, zmax=1,
-            text=[[f"{v:.2f}" for v in row] for row in z] if z else None,
-            hovertemplate="<b>%{x}</b><br>%{y}: %{z:.2f}<extra></extra>",
+            text=[[f"{v*100:.0f}" for v in row] for row in matrix],
+            hovertemplate="<b>%{y}</b><br>%{x}: %{z:.2f}<extra></extra>",
             colorbar=dict(
                 tickfont=dict(color="#e2e8f0"),
                 outlinecolor="#1e2d45",
@@ -322,17 +465,34 @@ def render():
             ),
         ))
         layout = dict(**PLOTLY_LAYOUT)
-        layout["height"] = 300
-        layout["xaxis"] = dict(tickfont=dict(size=10, color="#94a3b8"), tickangle=-45)
-        layout["yaxis"] = dict(tickfont=dict(size=11, color="#94a3b8"))
-        layout["title"] = dict(text="Top 30 Long | Bottom 30 Short × 8 Factors", font=dict(size=13))
+        layout["height"] = 760
+        layout["margin"] = dict(l=70, r=54, t=96, b=28)
+        layout["xaxis"] = dict(
+            tickfont=dict(size=12, color="#cbd5e1"),
+            side="top",
+            tickangle=0,
+            automargin=True,
+        )
+        layout["yaxis"] = dict(
+            tickfont=dict(size=10, color="#cbd5e1"),
+            autorange="reversed",
+            automargin=True,
+        )
+        layout["title"] = dict(
+            text="Factor Scoring Heatmap (Top + Bottom by Composite)",
+            font=dict(size=15),
+            x=0,
+            xanchor="left",
+            y=0.995,
+            yanchor="top",
+        )
         fig.update_layout(**layout)
 
-        # Vertical line separating longs and shorts
+        # Horizontal line separating longs and shorts
         if scores:
             split = min(30, len(scores))
-            if split < len(labels):
-                fig.add_vline(x=split - 0.5, line_color="#6366f1", line_width=1, line_dash="dot")
+            if split < len(tickers):
+                fig.add_hline(y=split - 0.5, line_color="#6366f1", line_width=1, line_dash="dot")
 
         st.plotly_chart(fig, use_container_width=True)
     else:

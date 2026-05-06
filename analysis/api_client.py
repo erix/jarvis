@@ -136,17 +136,40 @@ class APIClient:
         return response.choices[0].message.content or ""
 
     def _call_codex_responses(self, system_prompt: str, user_prompt: str, max_tokens: int) -> str:
-        response = self.client.responses.create(
+        # The Codex subscription backend exposes the Responses API with a
+        # narrower request shape than api.openai.com: input must be structured,
+        # storage disabled, and responses streamed.
+        stream = self.client.responses.create(
             model=self.model,
             instructions=system_prompt,
-            input=user_prompt,
-            max_output_tokens=max_tokens,
+            input=[
+                {
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": user_prompt}],
+                }
+            ],
+            store=False,
+            stream=True,
         )
-        text = getattr(response, "output_text", None)
-        if not text:
-            text = self._extract_responses_text(response)
+        chunks = []
+        response = None
+        for event in stream:
+            event_type = getattr(event, "type", "")
+            if event_type == "response.output_text.delta":
+                delta = getattr(event, "delta", "")
+                if delta:
+                    chunks.append(delta)
+            elif event_type == "response.completed":
+                response = getattr(event, "response", None)
+
+        text = "".join(chunks)
+        if not text and response is not None:
+            text = getattr(response, "output_text", None)
+            if not text:
+                text = self._extract_responses_text(response)
+
         if self.cost_tracker:
-            usage = getattr(response, "usage", None)
+            usage = getattr(response, "usage", None) if response is not None else None
             input_tokens = getattr(usage, "input_tokens", 0) if usage else self.estimate_tokens(user_prompt)
             output_tokens = getattr(usage, "output_tokens", 0) if usage else self.estimate_tokens(text)
             self.cost_tracker.record_subscription_call(
@@ -178,6 +201,8 @@ class APIClient:
     @staticmethod
     def _extract_json(text: str) -> Optional[dict]:
         """Extract JSON from text, handling markdown code blocks."""
+        if not text:
+            return None
         try:
             return json.loads(text.strip())
         except json.JSONDecodeError:

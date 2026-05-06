@@ -13,8 +13,12 @@ logger = logging.getLogger(__name__)
 DB_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "cache", "jarvis.db")
 
 
+def _db_mtime() -> float:
+    return os.path.getmtime(DB_PATH) if os.path.exists(DB_PATH) else 0.0
+
+
 @st.cache_data(ttl=300)
-def _load_metrics() -> dict:
+def _load_metrics(db_mtime: float = 0.0) -> dict:
     if not os.path.exists(DB_PATH):
         return {}
     try:
@@ -83,10 +87,18 @@ def _load_metrics() -> dict:
         # Earnings within 7 days
         earnings_7d = 0
         try:
-            earnings_7d = conn.execute(
-                "SELECT COUNT(DISTINCT ticker) FROM earnings_transcripts "
-                "WHERE date BETWEEN date('now') AND date('now','+7 days')"
-            ).fetchone()[0]
+            if conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='earnings_calendar'"
+            ).fetchone():
+                earnings_7d = conn.execute(
+                    "SELECT COUNT(DISTINCT ticker) FROM earnings_calendar "
+                    "WHERE earnings_date BETWEEN date('now') AND date('now','+7 days')"
+                ).fetchone()[0]
+            else:
+                earnings_7d = conn.execute(
+                    "SELECT COUNT(DISTINCT ticker) FROM earnings_transcripts "
+                    "WHERE date BETWEEN date('now') AND date('now','+7 days')"
+                ).fetchone()[0]
         except Exception:
             pass
 
@@ -187,60 +199,43 @@ def _call_jarvis(question: str, context_json: str) -> str:
 
 
 def render():
-    m = _load_metrics()
+    m = _load_metrics(_db_mtime())
 
-    # Two-column layout: left = JARVIS hero + chat, right = gradient fill
-    left, right = st.columns([1, 1])
+    st.markdown(
+        '<div class="jarvis-hero">JARVIS</div>'
+        '<div class="jarvis-subtitle">Long/Short Hedge Fund Analyst</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown("<br>", unsafe_allow_html=True)
 
-    with left:
-        st.markdown(
-            '<div class="jarvis-hero">JARVIS</div>'
-            '<div class="jarvis-subtitle">Long/Short Hedge Fund Analyst</div>',
-            unsafe_allow_html=True,
-        )
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # Chat input
+    question_col, ask_col = st.columns([7, 1])
+    with question_col:
         question = st.text_input(
             "",
             placeholder="Ask anything about the portfolio...",
             key="jarvis_question",
             label_visibility="collapsed",
         )
-        ask_btn = st.button("ASK JARVIS", use_container_width=True, type="primary")
+    with ask_col:
+        ask_btn = st.button("Ask", use_container_width=True, type="primary")
 
-        if ask_btn and question:
-            with st.spinner("JARVIS is analyzing..."):
-                context = _build_system_snapshot()
-                # Cache response for 60s per question
-                cache_key = f"jarvis_resp_{hash(question)}"
-                if cache_key not in st.session_state:
-                    st.session_state[cache_key] = _call_jarvis(question, context)
-                    st.session_state[f"{cache_key}_ts"] = time.time()
-                elif time.time() - st.session_state.get(f"{cache_key}_ts", 0) > 60:
-                    st.session_state[cache_key] = _call_jarvis(question, context)
-                    st.session_state[f"{cache_key}_ts"] = time.time()
-                response = st.session_state[cache_key]
+    if ask_btn and question:
+        with st.spinner("JARVIS is analyzing..."):
+            context = _build_system_snapshot()
+            # Cache response for 60s per question
+            cache_key = f"jarvis_resp_{hash(question)}"
+            if cache_key not in st.session_state:
+                st.session_state[cache_key] = _call_jarvis(question, context)
+                st.session_state[f"{cache_key}_ts"] = time.time()
+            elif time.time() - st.session_state.get(f"{cache_key}_ts", 0) > 60:
+                st.session_state[cache_key] = _call_jarvis(question, context)
+                st.session_state[f"{cache_key}_ts"] = time.time()
+            response = st.session_state[cache_key]
 
-            st.markdown(
-                f'<div style="background:#131827;border:1px solid #1e2d45;border-radius:8px;'
-                f'padding:16px;margin-top:12px;font-size:14px;line-height:1.6;">'
-                f'{response}</div>',
-                unsafe_allow_html=True,
-            )
-
-    with right:
-        # Dark gradient panel with fund name
         st.markdown(
-            """<div style="background:linear-gradient(135deg,#131827 0%,#1a2035 50%,#0f172a 100%);
-            border:1px solid #1e2d45;border-radius:12px;padding:48px 32px;
-            height:280px;display:flex;flex-direction:column;justify-content:center;">
-            <div style="font-size:13px;letter-spacing:4px;color:#6366f1;text-transform:uppercase;
-            font-weight:700;">Meridian Capital Partners</div>
-            <div style="font-size:24px;font-weight:700;color:#e2e8f0;margin-top:8px;">
-            Delaware Limited Partnership</div>
-            <div style="font-size:13px;color:#64748b;margin-top:4px;">Inception: January 2026</div>
-            </div>""",
+            f'<div style="background:#131827;border:1px solid #1e2d45;border-radius:8px;'
+            f'padding:16px;margin-top:12px;font-size:14px;line-height:1.6;">'
+            f'{response}</div>',
             unsafe_allow_html=True,
         )
 

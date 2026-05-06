@@ -20,11 +20,20 @@ div[data-testid="column"] button {
     background: #131827 !important;
     border: 1px solid #1e2d45 !important;
     color: #94a3b8 !important;
-    border-radius: 24px !important;
-    font-size: 12px !important;
+    border-radius: 6px !important;
+    font-size: 13px !important;
     font-weight: 600 !important;
-    letter-spacing: 0.5px !important;
+    letter-spacing: 0 !important;
+    min-height: 34px !important;
+    height: 34px !important;
+    padding: 0 12px !important;
+    white-space: nowrap !important;
     transition: all 0.15s !important;
+}
+div[data-testid="column"] button p {
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
 }
 div[data-testid="column"] button:hover {
     background: #1e2d45 !important;

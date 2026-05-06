@@ -6,6 +6,11 @@ import numpy as np
 from .regime_weights import get_weights
 from ._base import apply_sector_ranks
 
+CANDIDATE_LONG_RAW_THRESHOLD = 62.0
+CANDIDATE_SHORT_RAW_THRESHOLD = 38.0
+CANDIDATE_SECTOR_FRACTION = 0.20
+CANDIDATE_MAX_PER_SECTOR_SIDE = 20
+
 
 def calculate_composite(scores: pd.DataFrame, vix: float | None = None) -> pd.DataFrame:
     """
@@ -44,15 +49,24 @@ def calculate_composite(scores: pd.DataFrame, vix: float | None = None) -> pd.Da
     # Re-rank within sector
     df["composite_score"] = apply_sector_ranks(df, "composite_raw")
 
-    # Long/short candidates: top/bottom 30 within each sector, capped to avoid overlap
-    # in sectors with fewer than 60 names.
-    df["rank_in_sector"] = df.groupby("sector")["composite_score"].rank(ascending=False, method="first")
+    # Long/short candidates use absolute raw-score conviction, then a sector cap.
+    # Using the sector percentile score here would force symmetric top/bottom
+    # buckets in every sector, even when one tail has much weaker signals.
+    df["rank_in_sector"] = df.groupby("sector")["composite_raw"].rank(ascending=False, method="first")
+    df["rank_in_sector_asc"] = df.groupby("sector")["composite_raw"].rank(ascending=True, method="first")
     df["sector_size"] = df.groupby("sector")["sector"].transform("count")
-    df["candidate_bucket_size"] = np.minimum(30, np.floor(df["sector_size"] / 2)).astype(int)
+    df["candidate_bucket_size"] = np.minimum(
+        CANDIDATE_MAX_PER_SECTOR_SIDE,
+        np.ceil(df["sector_size"] * CANDIDATE_SECTOR_FRACTION),
+    ).astype(int)
 
-    df["is_long_candidate"] = (df["rank_in_sector"] <= df["candidate_bucket_size"]).astype(int)
+    df["is_long_candidate"] = (
+        (df["composite_raw"] >= CANDIDATE_LONG_RAW_THRESHOLD) &
+        (df["rank_in_sector"] <= df["candidate_bucket_size"])
+    ).astype(int)
     df["is_short_candidate"] = (
-        df["rank_in_sector"] > df["sector_size"] - df["candidate_bucket_size"]
+        (df["composite_raw"] <= CANDIDATE_SHORT_RAW_THRESHOLD) &
+        (df["rank_in_sector_asc"] <= df["candidate_bucket_size"])
     ).astype(int)
 
     df["regime"] = regime

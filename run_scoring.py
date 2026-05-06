@@ -47,6 +47,7 @@ def _ensure_scores_table(conn: sqlite3.Connection) -> None:
             short_interest_score REAL,
             insider_score REAL,
             institutional_score REAL,
+            composite_raw REAL,
             composite_score REAL,
             sector TEXT,
             regime TEXT,
@@ -56,6 +57,12 @@ def _ensure_scores_table(conn: sqlite3.Connection) -> None:
             PRIMARY KEY (ticker, date)
         )
     """)
+    existing = {
+        row[1]
+        for row in conn.execute("PRAGMA table_info(scores)").fetchall()
+    }
+    if "composite_raw" not in existing:
+        conn.execute("ALTER TABLE scores ADD COLUMN composite_raw REAL")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_scores_date ON scores(date)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_scores_ticker ON scores(ticker)")
     conn.commit()
@@ -81,7 +88,8 @@ def _save_scores(scores_df: pd.DataFrame, date_str: str) -> None:
     cols = [
         "ticker", "momentum_score", "value_score", "quality_score", "growth_score",
         "revisions_score", "short_interest_score", "insider_score", "institutional_score",
-        "composite_score", "sector", "regime", "vix", "is_long_candidate", "is_short_candidate",
+        "composite_raw", "composite_score", "sector", "regime", "vix",
+        "is_long_candidate", "is_short_candidate",
     ]
 
     rows = []
@@ -90,7 +98,8 @@ def _save_scores(scores_df: pd.DataFrame, date_str: str) -> None:
             r["ticker"], date_str,
             r.get("momentum_score"), r.get("value_score"), r.get("quality_score"),
             r.get("growth_score"), r.get("revisions_score"), r.get("short_interest_score"),
-            r.get("insider_score"), r.get("institutional_score"), r.get("composite_score"),
+            r.get("insider_score"), r.get("institutional_score"), r.get("composite_raw"),
+            r.get("composite_score"),
             r.get("sector"), r.get("regime"), r.get("vix"),
             int(r.get("is_long_candidate", 0)), int(r.get("is_short_candidate", 0)),
         ))
@@ -99,8 +108,8 @@ def _save_scores(scores_df: pd.DataFrame, date_str: str) -> None:
         INSERT OR REPLACE INTO scores
         (ticker, date, momentum_score, value_score, quality_score, growth_score,
          revisions_score, short_interest_score, insider_score, institutional_score,
-         composite_score, sector, regime, vix, is_long_candidate, is_short_candidate)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         composite_raw, composite_score, sector, regime, vix, is_long_candidate, is_short_candidate)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, rows)
     conn.commit()
     conn.close()
@@ -218,8 +227,16 @@ def main() -> None:
     minutes = int(elapsed // 60)
     seconds = int(elapsed % 60)
 
-    longs = scores[scores["is_long_candidate"] == 1]["ticker"].tolist()
-    shorts = scores[scores["is_short_candidate"] == 1]["ticker"].tolist()
+    longs = (
+        scores[scores["is_long_candidate"] == 1]
+        .sort_values("composite_raw", ascending=False)["ticker"]
+        .tolist()
+    )
+    shorts = (
+        scores[scores["is_short_candidate"] == 1]
+        .sort_values("composite_raw", ascending=True)["ticker"]
+        .tolist()
+    )
     regime = scores["regime"].iloc[0] if not scores.empty else "unknown"
     vix_val = scores["vix"].iloc[0] if not scores.empty else "N/A"
 

@@ -32,58 +32,67 @@ except Exception:
     pass
 
 TABS = [
-    "I  PORTFOLIO",
-    "II  RESEARCH",
-    "III  RISK",
-    "IV  PERFORMANCE",
-    "V  EXECUTION",
-    "VI  LETTER",
-    "VII  SETTINGS",
-    "VIII  OPS",
+    ("Portfolio", "portfolio"),
+    ("Research", "research"),
+    ("Risk", "risk"),
+    ("Performance", "performance"),
+    ("Execution", "execution"),
+    ("Letter", "letter"),
+    ("Settings", "settings"),
+    ("Ops", "operations"),
 ]
 
 if "active_tab" not in st.session_state:
-    st.session_state.active_tab = TABS[0]
+    st.session_state.active_tab = TABS[0][1]
+elif st.session_state.active_tab not in {tab_id for _, tab_id in TABS}:
+    # Migrate older session labels such as "I  PORTFOLIO".
+    old_label = str(st.session_state.active_tab).lower()
+    for label, tab_id in TABS:
+        if label.lower() in old_label:
+            st.session_state.active_tab = tab_id
+            break
+    else:
+        st.session_state.active_tab = TABS[0][1]
 
-# Pill navigation bar
+# Top navigation bar
 nav_cols = st.columns(len(TABS))
-for i, (col, tab) in enumerate(zip(nav_cols, TABS)):
+for i, (col, (label, tab_id)) in enumerate(zip(nav_cols, TABS)):
     with col:
-        is_active = st.session_state.active_tab == tab
+        is_active = st.session_state.active_tab == tab_id
         if st.button(
-            tab,
+            label,
             key=f"nav_{i}",
             use_container_width=True,
             type="primary" if is_active else "secondary",
         ):
-            st.session_state.active_tab = tab
+            st.session_state.active_tab = tab_id
             st.rerun()
 
 st.markdown("<hr>", unsafe_allow_html=True)
 
 active = st.session_state.active_tab
 
-if active == TABS[0]:
+if active == "portfolio":
     from dashboard.tabs.portfolio import render
     render()
-elif active == TABS[1]:
+elif active == "research":
     from dashboard.tabs.research import render
     render()
-elif active == TABS[2]:
+elif active == "risk":
     from dashboard.tabs.risk import render
     render()
-elif active == TABS[3]:
+elif active == "performance":
     from dashboard.tabs.performance import render
     render()
-elif active == TABS[4]:
+elif active == "execution":
     from dashboard.tabs.execution import render
     render()
-elif active == TABS[5]:
+elif active == "letter":
     from dashboard.tabs.letter import render
     render()
-elif active == TABS[6]:
+elif active == "settings":
     from dashboard.tabs.settings import render
     render()
-elif active == TABS[7]:
+elif active == "operations":
     from dashboard.tabs.operations import render
     render()
