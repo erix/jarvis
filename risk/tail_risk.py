@@ -3,6 +3,8 @@
 IMPORTANT: This module SUGGESTS exposure reduction but does NOT auto-execute any trades.
 All recommendations must be manually reviewed and acted upon by the operator.
 """
+from __future__ import annotations
+
 import logging
 import os
 import sqlite3

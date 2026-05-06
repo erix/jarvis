@@ -1,23 +1,30 @@
 """Factor 3: Quality — 8 sub-factors, sector-relative percentile rank."""
 import pandas as pd
 import numpy as np
-from ._base import get_db, apply_sector_ranks
+from ._base import get_db, apply_sector_ranks, table_exists
 
 
 def calculate_all(universe: pd.DataFrame) -> pd.DataFrame:
     conn = get_db()
 
     # All quarterly fundamentals for time-series calculations
-    fund_all = pd.read_sql_query(
-        """
-        SELECT ticker, report_date, roe, gross_margin, debt_equity,
-               cfo_ni, accruals_ratio, piotroski_f_score, altman_z_score,
-               net_income, operating_cash_flow, total_assets
-        FROM fundamentals
-        ORDER BY ticker, report_date
-        """,
-        conn,
-    )
+    if table_exists(conn, "fundamentals"):
+        fund_all = pd.read_sql_query(
+            """
+            SELECT ticker, report_date, roe, gross_margin, debt_equity,
+                   cfo_ni, accruals_ratio, piotroski_f_score, altman_z_score,
+                   net_income, operating_cash_flow, total_assets
+            FROM fundamentals
+            ORDER BY ticker, report_date
+            """,
+            conn,
+        )
+    else:
+        fund_all = pd.DataFrame(columns=[
+            "ticker", "report_date", "roe", "gross_margin", "debt_equity",
+            "cfo_ni", "accruals_ratio", "piotroski_f_score", "altman_z_score",
+            "net_income", "operating_cash_flow", "total_assets",
+        ])
 
     fund_all = fund_all.drop_duplicates(subset=["ticker", "report_date"])
     latest = fund_all.groupby("ticker").last().reset_index()
@@ -25,8 +32,19 @@ def calculate_all(universe: pd.DataFrame) -> pd.DataFrame:
     conn.close()
 
     df = universe.copy()
+    rank_cols = [
+        "rank_roe_stability", "rank_gm_level", "rank_gm_trend", "rank_debt_eq_inv",
+        "rank_cfo_ni_score", "rank_accruals_inv", "rank_piotroski_norm",
+        "rank_altman_score",
+    ]
+    if fund_all.empty:
+        for col in rank_cols:
+            df[col] = 50.0
+        df["quality_score"] = 50.0
+        return df[["ticker", "sector", "quality_score"] + rank_cols]
+
     latest_renamed = latest[["ticker", "gross_margin", "debt_equity", "cfo_ni",
-                              "accruals_ratio", "piotroski_f_score", "altman_z_score"]].copy()
+                             "accruals_ratio", "piotroski_f_score", "altman_z_score"]].copy()
     latest_renamed = latest_renamed.rename(columns={"gross_margin": "gm_latest"})
     df = df.merge(latest_renamed, on="ticker", how="left")
 
@@ -88,7 +106,6 @@ def calculate_all(universe: pd.DataFrame) -> pd.DataFrame:
                 "cfo_ni_score", "accruals_inv", "piotroski_norm", "altman_score"]:
         df[f"rank_{col}"] = apply_sector_ranks(df, col)
 
-    rank_cols = [c for c in df.columns if c.startswith("rank_")]
     df["quality_score"] = df[rank_cols].mean(axis=1)
 
     return df[["ticker", "sector", "quality_score"] + rank_cols]

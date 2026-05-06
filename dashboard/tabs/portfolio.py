@@ -21,23 +21,25 @@ def _load_metrics() -> dict:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
 
-        universe = conn.execute("SELECT COUNT(*) FROM tickers WHERE is_active=1").fetchone()[0]
+        universe = conn.execute("SELECT COUNT(*) FROM tickers WHERE is_benchmark=0").fetchone()[0]
         positions_row = conn.execute(
             "SELECT COUNT(*) FROM positions WHERE is_active=1"
         ).fetchone()
         positions_count = positions_row[0] if positions_row else 0
 
         scores = conn.execute(
-            "SELECT ticker, composite_score FROM scores ORDER BY scored_at DESC LIMIT 503"
+            "SELECT ticker, composite_score, is_long_candidate, is_short_candidate "
+            "FROM scores WHERE date=(SELECT MAX(date) FROM scores) "
+            "ORDER BY composite_score DESC LIMIT 503"
         ).fetchall()
-        long_cand = sum(1 for s in scores if (s["composite_score"] or 0) > 0.6)
-        short_cand = sum(1 for s in scores if (s["composite_score"] or 0) < 0.4)
+        long_cand = sum(1 for s in scores if s["is_long_candidate"])
+        short_cand = sum(1 for s in scores if s["is_short_candidate"])
 
         # Crowding proxy: count high short-interest tickers
         crowding = 0
         try:
             crowding = conn.execute(
-                "SELECT COUNT(*) FROM short_interest WHERE short_interest_pct > 20 "
+                "SELECT COUNT(*) FROM short_interest WHERE short_pct_float > 20 "
                 "AND date >= date('now','-7 days')"
             ).fetchone()[0]
         except Exception:
@@ -52,16 +54,16 @@ def _load_metrics() -> dict:
             ).fetchone()[0]
             ceo_buys = conn.execute(
                 "SELECT COUNT(*) FROM insider_transactions "
-                "WHERE title LIKE '%CEO%' OR title LIKE '%CFO%' "
-                "AND transaction_type='P' AND transaction_date >= date('now','-30 days')"
+                "WHERE owner_title LIKE '%CEO%' OR owner_title LIKE '%CFO%' "
+                "AND transaction_code='P' AND transaction_date >= date('now','-30 days')"
             ).fetchone()[0]
             cluster_buys = conn.execute(
                 "SELECT COUNT(DISTINCT ticker) FROM insider_transactions "
-                "WHERE transaction_type='P' AND transaction_date >= date('now','-7 days') "
+                "WHERE transaction_code='P' AND transaction_date >= date('now','-7 days') "
                 "GROUP BY ticker HAVING COUNT(*)>=3"
             ).fetchone()[0] if conn.execute(
                 "SELECT COUNT(DISTINCT ticker) FROM insider_transactions "
-                "WHERE transaction_type='P' AND transaction_date >= date('now','-7 days') "
+                "WHERE transaction_code='P' AND transaction_date >= date('now','-7 days') "
                 "GROUP BY ticker HAVING COUNT(*)>=3"
             ).fetchone() else 0
         except Exception:
@@ -121,7 +123,8 @@ def _build_system_snapshot() -> str:
         ).fetchall()
 
         top_scores = conn.execute(
-            "SELECT ticker, composite_score, scored_at FROM scores ORDER BY scored_at DESC LIMIT 30"
+            "SELECT ticker, composite_score, date AS scored_at FROM scores "
+            "WHERE date=(SELECT MAX(date) FROM scores) ORDER BY composite_score DESC LIMIT 30"
         ).fetchall()
 
         history = conn.execute(

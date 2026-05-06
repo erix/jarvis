@@ -1,4 +1,6 @@
 """Portfolio state: SQLite position tracking."""
+from __future__ import annotations
+
 import json
 import os
 import sqlite3
@@ -6,6 +8,7 @@ from datetime import date, datetime, timezone
 from typing import Any
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "..", "cache", "jarvis.db")
+DEFAULT_TOTAL_VALUE = 10_000_000.0
 
 
 def _conn() -> sqlite3.Connection:
@@ -42,10 +45,14 @@ def ensure_tables() -> None:
             shares REAL,
             price REAL,
             cost_basis REAL,
+            total_value REAL,
             sector TEXT,
             reason TEXT
         )
     """)
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(portfolio_history)").fetchall()}
+    if "total_value" not in cols:
+        conn.execute("ALTER TABLE portfolio_history ADD COLUMN total_value REAL")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ph_date ON portfolio_history(date)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ph_ticker ON portfolio_history(ticker)")
     conn.commit()
@@ -129,10 +136,10 @@ def add_position(
     action = _infer_action(shares, existing["shares"] if existing else 0)
     conn.execute(
         """
-        INSERT INTO portfolio_history (date, ticker, action, shares, price, sector, reason)
-        VALUES (?,?,?,?,?,?,?)
+        INSERT INTO portfolio_history (date, ticker, action, shares, price, total_value, sector, reason)
+        VALUES (?,?,?,?,?,?,?,?)
         """,
-        (date.today().isoformat(), ticker, action, shares, price, sector, reason),
+        (date.today().isoformat(), ticker, action, shares, price, _estimate_total_value(conn), sector, reason),
     )
     conn.commit()
     conn.close()
@@ -161,12 +168,12 @@ def close_position(ticker: str, price: float | None = None, reason: str = "close
         action = "cover" if pos["shares"] < 0 else "sell"
         conn.execute(
             """
-            INSERT INTO portfolio_history (date, ticker, action, shares, price, sector, reason)
-            VALUES (?,?,?,?,?,?,?)
+            INSERT INTO portfolio_history (date, ticker, action, shares, price, total_value, sector, reason)
+            VALUES (?,?,?,?,?,?,?,?)
             """,
             (
                 date.today().isoformat(), ticker, action,
-                -pos["shares"], close_price, pos["sector"], reason,
+                -pos["shares"], close_price, _estimate_total_value(conn), pos["sector"], reason,
             ),
         )
         conn.commit()
@@ -211,6 +218,14 @@ def get_portfolio_summary() -> dict[str, Any]:
         "long_tickers": [p["ticker"] for p in longs],
         "short_tickers": [p["ticker"] for p in shorts],
     }
+
+
+def _estimate_total_value(conn: sqlite3.Connection) -> float:
+    row = conn.execute(
+        "SELECT SUM(COALESCE(pnl, 0)) AS total_pnl FROM positions WHERE is_active=1"
+    ).fetchone()
+    total_pnl = row["total_pnl"] if row and row["total_pnl"] is not None else 0.0
+    return DEFAULT_TOTAL_VALUE + float(total_pnl)
 
 
 def _infer_action(new_shares: float, old_shares: float) -> str:

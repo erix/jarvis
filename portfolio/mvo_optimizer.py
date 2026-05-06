@@ -1,4 +1,6 @@
 """Markowitz Mean-Variance Optimizer with sector, beta, and position constraints."""
+from __future__ import annotations
+
 import os
 import sqlite3
 import warnings as _warnings

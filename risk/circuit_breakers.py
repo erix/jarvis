@@ -3,6 +3,8 @@
 CRITICAL: Circuit breakers do NOT automatically close positions.
 They ONLY block new trades and log alerts. Existing positions are never auto-closed.
 """
+from __future__ import annotations
+
 import json
 import logging
 import os
@@ -54,8 +56,12 @@ def get_halt_info() -> dict | None:
         return json.load(f)
 
 
-def _load_portfolio_values(days: int = 10) -> pd.DataFrame:
-    """Compute daily portfolio value from portfolio_history + current positions."""
+def _load_portfolio_values(days: int = 10, aum: float = 0.0) -> pd.DataFrame:
+    """Compute daily mark-to-market NAV from current positions.
+
+    Long/short books cannot use signed notional as NAV. Use AUM plus unrealized
+    P&L against each position's entry price.
+    """
     conn = sqlite3.connect(DB_PATH)
 
     # Get mark-to-market values from daily_prices × positions
@@ -95,7 +101,9 @@ def _load_portfolio_values(days: int = 10) -> pd.DataFrame:
     if not common:
         return pd.DataFrame()
 
-    daily_values = pivot[common].mul(shares[common]).sum(axis=1)
+    entry_prices = positions_df.set_index("ticker")["entry_price"]
+    pnl = pivot[common].sub(entry_prices[common], axis=1).mul(shares[common]).sum(axis=1)
+    daily_values = float(aum) + pnl
     return daily_values.reset_index().rename(columns={0: "portfolio_value", "index": "date"})
 
 
@@ -117,7 +125,7 @@ def check_circuit_breakers(
         return {"action": "OK", "message": "No AUM — skipping circuit breakers", "alerts": []}
 
     # --- Load portfolio history for P&L calc ---
-    hist = _load_portfolio_values(days=10)
+    hist = _load_portfolio_values(days=10, aum=aum)
 
     if hist.empty or len(hist) < 2:
         # No history yet — can't compute P&L
@@ -137,18 +145,8 @@ def check_circuit_breakers(
     week_start_val = float(hist.iloc[max(0, len(hist) - 6)]["portfolio_value"])
     weekly_pnl_pct = (current_val - week_start_val) / aum if aum else 0.0
 
-    # Drawdown from all-time peak in risk_state
-    from risk.state import get_recent_risk_states
-    recent_states = get_recent_risk_states(days=252)
-    if recent_states:
-        # Use gross_exposure as nav proxy (actual NAV tracking would need more context)
-        peak_val = max((s.get("gross_exposure") or 0) for s in recent_states)
-        if peak_val > 0:
-            drawdown_pct = (current_val - peak_val) / peak_val
-        else:
-            drawdown_pct = 0.0
-    else:
-        drawdown_pct = 0.0
+    peak_val = float(hist["portfolio_value"].max())
+    drawdown_pct = (current_val - peak_val) / peak_val if peak_val > 0 else 0.0
 
     # --- Check thresholds ---
 

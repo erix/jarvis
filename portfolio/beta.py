@@ -1,4 +1,6 @@
 """Rolling 60-day beta calculator vs SPY."""
+from __future__ import annotations
+
 import sqlite3
 import os
 

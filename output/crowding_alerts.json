@@ -1,0 +1,12 @@
+{
+  "alerts": [
+    {
+      "factor_1": "momentum_score",
+      "factor_2": "revisions_score",
+      "correlation": 0.9209,
+      "threshold": 0.7,
+      "crowded": true
+    }
+  ],
+  "total": 1
+}

@@ -1,27 +1,43 @@
 """Factor 4: Growth — 5 sub-factors, sector-relative percentile rank."""
 import pandas as pd
 import numpy as np
-from ._base import get_db, apply_sector_ranks
+from ._base import get_db, apply_sector_ranks, table_exists
 
 
 def calculate_all(universe: pd.DataFrame) -> pd.DataFrame:
     conn = get_db()
 
-    fund_all = pd.read_sql_query(
-        """
-        SELECT ticker, report_date, revenue_growth_yoy, earnings_growth_yoy,
-               free_cash_flow, revenue, rd_expense
-        FROM fundamentals
-        ORDER BY ticker, report_date
-        """,
-        conn,
-    )
+    if table_exists(conn, "fundamentals"):
+        fund_all = pd.read_sql_query(
+            """
+            SELECT ticker, report_date, revenue_growth_yoy, earnings_growth_yoy,
+                   free_cash_flow, revenue, rd_expense
+            FROM fundamentals
+            ORDER BY ticker, report_date
+            """,
+            conn,
+        )
+    else:
+        fund_all = pd.DataFrame(columns=[
+            "ticker", "report_date", "revenue_growth_yoy", "earnings_growth_yoy",
+            "free_cash_flow", "revenue", "rd_expense",
+        ])
     conn.close()
 
     fund_all = fund_all.drop_duplicates(subset=["ticker", "report_date"])
     latest = fund_all.groupby("ticker").last().reset_index()
 
     df = universe.copy()
+    rank_cols = [
+        "rank_rev_growth", "rank_earn_growth", "rank_rev_accel",
+        "rank_rd_intensity", "rank_fcf_growth",
+    ]
+    if fund_all.empty:
+        for col in rank_cols:
+            df[col] = 50.0
+        df["growth_score"] = 50.0
+        return df[["ticker", "sector", "growth_score"] + rank_cols]
+
     df = df.merge(latest[["ticker", "revenue_growth_yoy", "earnings_growth_yoy",
                            "free_cash_flow", "revenue", "rd_expense"]],
                   on="ticker", how="left")
@@ -70,7 +86,6 @@ def calculate_all(universe: pd.DataFrame) -> pd.DataFrame:
     for col in ["rev_growth", "earn_growth", "rev_accel", "rd_intensity", "fcf_growth"]:
         df[f"rank_{col}"] = apply_sector_ranks(df, col)
 
-    rank_cols = [c for c in df.columns if c.startswith("rank_")]
     df["growth_score"] = df[rank_cols].mean(axis=1)
 
     return df[["ticker", "sector", "growth_score"] + rank_cols]

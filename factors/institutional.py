@@ -1,15 +1,18 @@
 """Factor 8: Institutional Flow — 3 sub-factors from 13F holdings."""
 import pandas as pd
 import numpy as np
-from ._base import get_db, apply_sector_ranks
+from ._base import get_db, apply_sector_ranks, table_exists
 
 
 def calculate_all(universe: pd.DataFrame) -> pd.DataFrame:
     conn = get_db()
-    holdings = pd.read_sql_query(
-        "SELECT ticker, fund_name, cik, quarter, shares, value FROM institutional_holdings",
-        conn,
-    )
+    if table_exists(conn, "institutional_holdings"):
+        holdings = pd.read_sql_query(
+            "SELECT ticker, fund_name, cik, quarter, shares, value FROM institutional_holdings",
+            conn,
+        )
+    else:
+        holdings = pd.DataFrame(columns=["ticker", "fund_name", "cik", "quarter", "shares", "value"])
     conn.close()
 
     df = universe.copy()

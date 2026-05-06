@@ -2,7 +2,7 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-from ._base import get_db, apply_sector_ranks
+from ._base import get_db, apply_sector_ranks, table_exists
 
 
 _CEO_CFO_TITLES = ["ceo", "chief executive", "cfo", "chief financial"]
@@ -17,15 +17,21 @@ def _is_exec(title: str) -> bool:
 
 def calculate_all(universe: pd.DataFrame) -> pd.DataFrame:
     conn = get_db()
-    txns = pd.read_sql_query(
-        """
-        SELECT ticker, owner_title, transaction_date, transaction_code,
-               shares, price_per_share
-        FROM insider_transactions
-        WHERE transaction_code IN ('P', 'S')
-        """,
-        conn,
-    )
+    if table_exists(conn, "insider_transactions"):
+        txns = pd.read_sql_query(
+            """
+            SELECT ticker, owner_title, transaction_date, transaction_code,
+                   shares, price_per_share
+            FROM insider_transactions
+            WHERE transaction_code IN ('P', 'S')
+            """,
+            conn,
+        )
+    else:
+        txns = pd.DataFrame(columns=[
+            "ticker", "owner_title", "transaction_date", "transaction_code",
+            "shares", "price_per_share",
+        ])
     conn.close()
 
     df = universe.copy()

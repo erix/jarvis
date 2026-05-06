@@ -1,4 +1,6 @@
 """Correlation monitor: pairwise correlations, effective bets, diversification alerts."""
+from __future__ import annotations
+
 import logging
 import os
 import sqlite3

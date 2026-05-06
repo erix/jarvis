@@ -1,4 +1,6 @@
 """Risk state persistence: risk_state and rejections tables."""
+from __future__ import annotations
+
 import os
 import sqlite3
 from datetime import date, datetime, timezone

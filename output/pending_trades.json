@@ -1,0 +1,362 @@
+[
+  {
+    "ticker": "ABT",
+    "action": "short",
+    "shares": -1012.25,
+    "signal_price": 87.17,
+    "estimated_cost": 39.48,
+    "dollar_value": 88237.87
+  },
+  {
+    "ticker": "ADM",
+    "action": "buy",
+    "shares": 1114.26,
+    "signal_price": 79.19,
+    "estimated_cost": 78.48,
+    "dollar_value": 88237.87
+  },
+  {
+    "ticker": "AEP",
+    "action": "buy",
+    "shares": 643.88,
+    "signal_price": 137.04,
+    "estimated_cost": 66.48,
+    "dollar_value": 88237.87
+  },
+  {
+    "ticker": "ALL",
+    "action": "buy",
+    "shares": 403.82,
+    "signal_price": 218.51,
+    "estimated_cost": 72.34,
+    "dollar_value": 88237.87
+  },
+  {
+    "ticker": "APA",
+    "action": "buy",
+    "shares": 2127.24,
+    "signal_price": 41.48,
+    "estimated_cost": 89.2,
+    "dollar_value": 88237.87
+  },
+  {
+    "ticker": "AWK",
+    "action": "short",
+    "shares": -700.02,
+    "signal_price": 126.05,
+    "estimated_cost": 82.43,
+    "dollar_value": 88237.87
+  },
+  {
+    "ticker": "AXON",
+    "action": "short",
+    "shares": -75.94,
+    "signal_price": 380.6,
+    "estimated_cost": 9.82,
+    "dollar_value": 28902.0
+  },
+  {
+    "ticker": "BAX",
+    "action": "short",
+    "shares": -4877.69,
+    "signal_price": 16.75,
+    "estimated_cost": 145.03,
+    "dollar_value": 81701.23
+  },
+  {
+    "ticker": "BK",
+    "action": "buy",
+    "shares": 666.65,
+    "signal_price": 132.36,
+    "estimated_cost": 54.99,
+    "dollar_value": 88237.87
+  },
+  {
+    "ticker": "BRO",
+    "action": "short",
+    "shares": -1534.3,
+    "signal_price": 57.51,
+    "estimated_cost": 110.25,
+    "dollar_value": 88237.87
+  },
+  {
+    "ticker": "BSX",
+    "action": "short",
+    "shares": -1016.78,
+    "signal_price": 55.98,
+    "estimated_cost": 26.35,
+    "dollar_value": 56919.35
+  },
+  {
+    "ticker": "C",
+    "action": "buy",
+    "shares": 689.3,
+    "signal_price": 128.01,
+    "estimated_cost": 32.73,
+    "dollar_value": 88237.87
+  },
+  {
+    "ticker": "CBOE",
+    "action": "buy",
+    "shares": 256.52,
+    "signal_price": 343.98,
+    "estimated_cost": 68.85,
+    "dollar_value": 88237.87
+  },
+  {
+    "ticker": "CBRE",
+    "action": "short",
+    "shares": -318.03,
+    "signal_price": 142.57,
+    "estimated_cost": 27.64,
+    "dollar_value": 45341.79
+  },
+  {
+    "ticker": "CF",
+    "action": "buy",
+    "shares": 197.08,
+    "signal_price": 128.04,
+    "estimated_cost": 9.1,
+    "dollar_value": 25234.34
+  },
+  {
+    "ticker": "CHTR",
+    "action": "short",
+    "shares": -36.41,
+    "signal_price": 158.23,
+    "estimated_cost": 0.96,
+    "dollar_value": 5761.1
+  },
+  {
+    "ticker": "CMI",
+    "action": "buy",
+    "shares": 11.99,
+    "signal_price": 674.88,
+    "estimated_cost": 1.15,
+    "dollar_value": 8088.79
+  },
+  {
+    "ticker": "CNC",
+    "action": "buy",
+    "shares": 802.41,
+    "signal_price": 52.98,
+    "estimated_cost": 26.94,
+    "dollar_value": 42511.48
+  },
+  {
+    "ticker": "COR",
+    "action": "short",
+    "shares": -288.45,
+    "signal_price": 305.9,
+    "estimated_cost": 57.64,
+    "dollar_value": 88237.87
+  },
+  {
+    "ticker": "CPRT",
+    "action": "short",
+    "shares": -2661.78,
+    "signal_price": 33.15,
+    "estimated_cost": 102.01,
+    "dollar_value": 88237.87
+  },
+  {
+    "ticker": "CTSH",
+    "action": "short",
+    "shares": -1225.96,
+    "signal_price": 51.87,
+    "estimated_cost": 48.91,
+    "dollar_value": 63590.73
+  },
+  {
+    "ticker": "CTVA",
+    "action": "buy",
+    "shares": 400.51,
+    "signal_price": 83.9,
+    "estimated_cost": 19.1,
+    "dollar_value": 33602.76
+  },
+  {
+    "ticker": "CVS",
+    "action": "buy",
+    "shares": 1093.54,
+    "signal_price": 80.69,
+    "estimated_cost": 56.16,
+    "dollar_value": 88237.87
+  },
+  {
+    "ticker": "DLR",
+    "action": "buy",
+    "shares": 67.12,
+    "signal_price": 196.69,
+    "estimated_cost": 3.23,
+    "dollar_value": 13201.98
+  },
+  {
+    "ticker": "EBAY",
+    "action": "buy",
+    "shares": 838.28,
+    "signal_price": 105.26,
+    "estimated_cost": 48.79,
+    "dollar_value": 88237.87
+  },
+  {
+    "ticker": "ELV",
+    "action": "buy",
+    "shares": 88.81,
+    "signal_price": 369.07,
+    "estimated_cost": 9.79,
+    "dollar_value": 32778.02
+  },
+  {
+    "ticker": "ETR",
+    "action": "buy",
+    "shares": 751.86,
+    "signal_price": 117.36,
+    "estimated_cost": 70.97,
+    "dollar_value": 88237.87
+  },
+  {
+    "ticker": "FE",
+    "action": "short",
+    "shares": -1923.23,
+    "signal_price": 45.88,
+    "estimated_cost": 90.97,
+    "dollar_value": 88237.87
+  },
+  {
+    "ticker": "FICO",
+    "action": "short",
+    "shares": -26.95,
+    "signal_price": 1066.27,
+    "estimated_cost": 8.77,
+    "dollar_value": 28741.28
+  },
+  {
+    "ticker": "FOXA",
+    "action": "short",
+    "shares": -498.01,
+    "signal_price": 62.23,
+    "estimated_cost": 22.64,
+    "dollar_value": 30991.35
+  },
+  {
+    "ticker": "FRT",
+    "action": "buy",
+    "shares": 765.36,
+    "signal_price": 115.29,
+    "estimated_cost": 129.33,
+    "dollar_value": 88237.87
+  },
+  {
+    "ticker": "GIS",
+    "action": "short",
+    "shares": -2553.92,
+    "signal_price": 34.55,
+    "estimated_cost": 95.89,
+    "dollar_value": 88237.87
+  },
+  {
+    "ticker": "GOOGL",
+    "action": "buy",
+    "shares": 227.17,
+    "signal_price": 388.43,
+    "estimated_cost": 10.18,
+    "dollar_value": 88237.87
+  },
+  {
+    "ticker": "GRMN",
+    "action": "buy",
+    "shares": 277.6,
+    "signal_price": 234.64,
+    "estimated_cost": 57.48,
+    "dollar_value": 65135.38
+  },
+  {
+    "ticker": "HST",
+    "action": "buy",
+    "shares": 4140.68,
+    "signal_price": 21.31,
+    "estimated_cost": 138.84,
+    "dollar_value": 88237.87
+  },
+  {
+    "ticker": "IBKR",
+    "action": "buy",
+    "shares": 1051.58,
+    "signal_price": 83.91,
+    "estimated_cost": 67.3,
+    "dollar_value": 88237.87
+  },
+  {
+    "ticker": "IP",
+    "action": "short",
+    "shares": -2383.3,
+    "signal_price": 31.86,
+    "estimated_cost": 82.92,
+    "dollar_value": 75931.94
+  },
+  {
+    "ticker": "IR",
+    "action": "short",
+    "shares": -1163.78,
+    "signal_price": 75.82,
+    "estimated_cost": 79.27,
+    "dollar_value": 88237.87
+  },
+  {
+    "ticker": "NKE",
+    "action": "short",
+    "shares": -345.99,
+    "signal_price": 43.06,
+    "estimated_cost": 5.45,
+    "dollar_value": 14898.45
+  },
+  {
+    "ticker": "OKE",
+    "action": "short",
+    "shares": -980.2,
+    "signal_price": 90.02,
+    "estimated_cost": 67.8,
+    "dollar_value": 88237.87
+  },
+  {
+    "ticker": "POOL",
+    "action": "short",
+    "shares": -115.41,
+    "signal_price": 187.04,
+    "estimated_cost": 11.75,
+    "dollar_value": 21585.7
+  },
+  {
+    "ticker": "ROST",
+    "action": "buy",
+    "shares": 388.0,
+    "signal_price": 227.42,
+    "estimated_cost": 57.39,
+    "dollar_value": 88237.87
+  },
+  {
+    "ticker": "SMCI",
+    "action": "short",
+    "shares": -1972.05,
+    "signal_price": 27.83,
+    "estimated_cost": 36.32,
+    "dollar_value": 54882.03
+  },
+  {
+    "ticker": "TGT",
+    "action": "buy",
+    "shares": 684.97,
+    "signal_price": 128.82,
+    "estimated_cost": 51.74,
+    "dollar_value": 88237.87
+  },
+  {
+    "ticker": "WTW",
+    "action": "short",
+    "shares": -247.63,
+    "signal_price": 259.47,
+    "estimated_cost": 52.99,
+    "dollar_value": 64253.57
+  }
+]

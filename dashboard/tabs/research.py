@@ -1,4 +1,6 @@
 """Page II — Research: Factor heatmap + candidate cards."""
+from __future__ import annotations
+
 import json
 import logging
 import os
@@ -10,6 +12,25 @@ logger = logging.getLogger(__name__)
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "cache", "jarvis.db")
 
+FACTOR_COLS = [
+    ("momentum", "momentum_score"),
+    ("value", "value_score"),
+    ("quality", "quality_score"),
+    ("growth", "growth_score"),
+    ("revisions", "revisions_score"),
+    ("short_interest", "short_interest_score"),
+    ("insider", "insider_score"),
+    ("institutional", "institutional_score"),
+]
+
+
+def _score_pct(score: float | None) -> float:
+    return float(score or 0.0)
+
+
+def _score_unit(score: float | None) -> float:
+    return max(0.0, min(_score_pct(score) / 100.0, 1.0))
+
 
 @st.cache_data(ttl=300)
 def _load_scores() -> list[dict]:
@@ -19,14 +40,28 @@ def _load_scores() -> list[dict]:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT s.ticker, s.composite_score, s.scored_at, "
-            "t.sector, t.market_cap "
+            "SELECT s.ticker, s.composite_score, s.date AS scored_at, "
+            "t.sector, f.market_cap "
             "FROM scores s LEFT JOIN tickers t ON s.ticker=t.symbol "
-            "WHERE s.scored_at = (SELECT MAX(s2.scored_at) FROM scores s2 WHERE s2.ticker=s.ticker) "
+            "LEFT JOIN fundamentals f ON f.rowid = ("
+            "  SELECT f2.rowid FROM fundamentals f2 WHERE f2.ticker=s.ticker "
+            "  ORDER BY f2.report_date DESC, CASE f2.period WHEN 'quarterly' THEN 0 ELSE 1 END "
+            "  LIMIT 1"
+            ") "
+            "WHERE s.date = (SELECT MAX(s2.date) FROM scores s2 WHERE s2.ticker=s.ticker) "
             "ORDER BY s.composite_score DESC LIMIT 200"
         ).fetchall()
         conn.close()
-        return [dict(r) for r in rows]
+        seen = set()
+        scores = []
+        for row in rows:
+            item = dict(row)
+            ticker = item.get("ticker")
+            if ticker in seen:
+                continue
+            seen.add(ticker)
+            scores.append(item)
+        return scores
     except Exception as exc:
         logger.warning("Scores load error: %s", exc)
         return []
@@ -39,9 +74,8 @@ def _load_candidates() -> dict:
     if not scores:
         return {"long": [], "short": []}
 
-    longs = [s for s in scores if (s.get("composite_score") or 0) >= 0.5][:10]
-    shorts = [s for s in scores if (s.get("composite_score") or 0) < 0.5]
-    shorts = sorted(shorts, key=lambda x: x.get("composite_score") or 0)[:10]
+    longs = scores[:10]
+    shorts = sorted(scores, key=lambda x: x.get("composite_score") or 0)[:10]
 
     if not os.path.exists(DB_PATH):
         return {"long": longs, "short": shorts}
@@ -63,13 +97,13 @@ def _load_candidates() -> dict:
                 # Fundamental quality metrics from DB if available
                 try:
                     fund = conn.execute(
-                        "SELECT piotroski_score, altman_z FROM fundamentals WHERE ticker=? "
-                        "ORDER BY date DESC LIMIT 1",
+                        "SELECT piotroski_f_score, altman_z_score FROM fundamentals WHERE ticker=? "
+                        "ORDER BY report_date DESC LIMIT 1",
                         (ticker,),
                     ).fetchone()
                     if fund:
-                        c["piotroski"] = fund["piotroski_score"]
-                        c["altman_z"] = fund["altman_z"]
+                        c["piotroski"] = fund["piotroski_f_score"]
+                        c["altman_z"] = fund["altman_z_score"]
                 except Exception:
                     pass
 
@@ -98,42 +132,36 @@ def _load_factor_heatmap_data() -> tuple:
     if not scores:
         return [], [], []
 
-    longs = [s["ticker"] for s in scores if (s.get("composite_score") or 0) >= 0.5][:30]
-    shorts = [s["ticker"] for s in scores if (s.get("composite_score") or 0) < 0.5]
-    shorts = [s["ticker"] for s in sorted(
-        [s for s in scores if (s.get("composite_score") or 0) < 0.5],
-        key=lambda x: x.get("composite_score") or 0
-    )][:30]
+    longs = [s["ticker"] for s in scores[:30]]
+    shorts = [s["ticker"] for s in sorted(scores, key=lambda x: x.get("composite_score") or 0)[:30]]
 
     tickers = longs + shorts
 
-    FACTOR_COLS = ["momentum", "value", "quality", "growth", "short_interest",
-                   "crowding", "insider", "revisions"]
+    factor_names = [name for name, _ in FACTOR_COLS]
 
     if not tickers or not os.path.exists(DB_PATH):
-        return tickers, FACTOR_COLS, []
+        return tickers, factor_names, []
 
     try:
         conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
         matrix = []
         for ticker in tickers:
             row_data = []
-            for factor in FACTOR_COLS:
-                try:
-                    val = conn.execute(
-                        f"SELECT {factor}_score FROM factor_scores WHERE ticker=? "
-                        "ORDER BY scored_at DESC LIMIT 1",
-                        (ticker,),
-                    ).fetchone()
-                    row_data.append(float(val[0]) if val and val[0] is not None else 0.5)
-                except Exception:
-                    row_data.append(0.5)
+            row = conn.execute(
+                "SELECT momentum_score, value_score, quality_score, growth_score, "
+                "revisions_score, short_interest_score, insider_score, institutional_score "
+                "FROM scores WHERE ticker=? ORDER BY date DESC LIMIT 1",
+                (ticker,),
+            ).fetchone()
+            for _, col in FACTOR_COLS:
+                row_data.append(_score_unit(row[col]) if row else 0.5)
             matrix.append(row_data)
         conn.close()
-        return tickers, FACTOR_COLS, matrix
+        return tickers, factor_names, matrix
     except Exception as exc:
         logger.warning("Heatmap data error: %s", exc)
-        return tickers, FACTOR_COLS, [[0.5] * 8 for _ in tickers]
+        return tickers, factor_names, [[0.5] * 8 for _ in tickers]
 
 
 def _set_approval(ticker: str, status: str):
@@ -158,9 +186,9 @@ def _set_approval(ticker: str, status: str):
         st.error(f"DB error: {exc}")
 
 
-def _render_candidate_card(c: dict, side: str):
+def _render_candidate_card(c: dict, side: str, idx: int = 0):
     ticker = c.get("ticker", "")
-    score = c.get("composite_score") or 0
+    score = _score_pct(c.get("composite_score"))
     sector = c.get("sector") or "—"
     shares = c.get("shares") or 0
     price = c.get("current_price") or c.get("entry_price") or 0
@@ -185,7 +213,7 @@ def _render_candidate_card(c: dict, side: str):
         z_str = "—"
 
     color = "#10b981" if side == "long" else "#f43f5e"
-    score_pct = f"{score*100:.0f}"
+    score_pct = f"{score:.0f}"
 
     with st.container():
         st.markdown(
@@ -209,17 +237,17 @@ def _render_candidate_card(c: dict, side: str):
 
         b1, b2, b3 = st.columns(3)
         with b1:
-            if st.button("✓ Approve", key=f"approve_{ticker}_{side}", use_container_width=True):
+            if st.button("✓ Approve", key=f"approve_{ticker}_{side}_{idx}", use_container_width=True):
                 _set_approval(ticker, "approved")
                 st.cache_data.clear()
                 st.rerun()
         with b2:
-            if st.button("✗ Reject", key=f"reject_{ticker}_{side}", use_container_width=True):
+            if st.button("✗ Reject", key=f"reject_{ticker}_{side}_{idx}", use_container_width=True):
                 _set_approval(ticker, "rejected")
                 st.cache_data.clear()
                 st.rerun()
         with b3:
-            if st.button("↺ Reset", key=f"reset_{ticker}_{side}", use_container_width=True):
+            if st.button("↺ Reset", key=f"reset_{ticker}_{side}_{idx}", use_container_width=True):
                 _set_approval(ticker, "pending")
                 st.cache_data.clear()
                 st.rerun()
@@ -243,16 +271,16 @@ def render():
     # KPI row
     scores = _load_scores()
     if scores:
-        top_score = scores[0]["composite_score"] or 0
-        bottom_score = scores[-1]["composite_score"] or 0
+        top_score = _score_pct(scores[0]["composite_score"])
+        bottom_score = _score_pct(scores[-1]["composite_score"])
     else:
         top_score = bottom_score = 0
 
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Long Candidates", len([s for s in scores if (s.get("composite_score") or 0) >= 0.5]))
-    k2.metric("Short Candidates", len([s for s in scores if (s.get("composite_score") or 0) < 0.5]))
-    k3.metric("Top Score", f"{top_score*100:.0f}")
-    k4.metric("Bottom Score", f"{bottom_score*100:.0f}")
+    k1.metric("Long Candidates", 30 if scores else 0)
+    k2.metric("Short Candidates", 30 if scores else 0)
+    k3.metric("Top Score", f"{top_score:.0f}")
+    k4.metric("Bottom Score", f"{bottom_score:.0f}")
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
@@ -301,8 +329,8 @@ def render():
         fig.update_layout(**layout)
 
         # Vertical line separating longs and shorts
-        if len([s for s in scores if (s.get("composite_score") or 0) >= 0.5]) > 0:
-            split = min(30, len([s for s in scores if (s.get("composite_score") or 0) >= 0.5]))
+        if scores:
+            split = min(30, len(scores))
             if split < len(labels):
                 fig.add_vline(x=split - 0.5, line_color="#6366f1", line_width=1, line_dash="dot")
 
@@ -316,13 +344,13 @@ def render():
     long_col, short_col = st.columns(2)
     with long_col:
         st.markdown("### 🟢 Top 10 Long Candidates")
-        for c in candidates.get("long", []):
-            _render_candidate_card(c, "long")
+        for idx, c in enumerate(candidates.get("long", [])):
+            _render_candidate_card(c, "long", idx)
 
     with short_col:
         st.markdown("### 🔴 Top 10 Short Candidates")
-        for c in candidates.get("short", []):
-            _render_candidate_card(c, "short")
+        for idx, c in enumerate(candidates.get("short", [])):
+            _render_candidate_card(c, "short", idx)
 
     if not candidates.get("long") and not candidates.get("short"):
         st.info("No candidates yet — run `python run_scoring.py` to generate scores.")

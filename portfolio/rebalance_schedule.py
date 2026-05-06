@@ -1,4 +1,6 @@
 """Rebalance schedule advisor: checks earnings, FOMC dates, and options expiry."""
+from __future__ import annotations
+
 import calendar
 from datetime import date, timedelta
 

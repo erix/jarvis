@@ -1,7 +1,7 @@
 """Factor 2: Value — 6 sub-factors, sector-relative percentile rank."""
 import pandas as pd
 import numpy as np
-from ._base import get_db, apply_sector_ranks
+from ._base import get_db, apply_sector_ranks, table_exists
 
 
 def calculate_all(universe: pd.DataFrame) -> pd.DataFrame:
@@ -11,20 +11,28 @@ def calculate_all(universe: pd.DataFrame) -> pd.DataFrame:
     """
     conn = get_db()
 
-    fund_raw = pd.read_sql_query(
-        """
-        SELECT f.ticker, f.pe_ratio, f.fcf_yield, f.ev_ebitda,
-               f.shareholder_yield, f.market_cap, f.total_equity,
-               f.shares_outstanding, f.revenue, f.total_debt, f.cash,
-               f.free_cash_flow, f.buyback_yield, f.dividend_yield
-        FROM fundamentals f
-        INNER JOIN (
-            SELECT ticker, MAX(report_date) AS max_date
-            FROM fundamentals GROUP BY ticker
-        ) latest ON f.ticker = latest.ticker AND f.report_date = latest.max_date
-        """,
-        conn,
-    )
+    if table_exists(conn, "fundamentals"):
+        fund_raw = pd.read_sql_query(
+            """
+            SELECT f.ticker, f.pe_ratio, f.fcf_yield, f.ev_ebitda,
+                   f.shareholder_yield, f.market_cap, f.total_equity,
+                   f.shares_outstanding, f.revenue, f.total_debt, f.cash,
+                   f.free_cash_flow, f.buyback_yield, f.dividend_yield
+            FROM fundamentals f
+            INNER JOIN (
+                SELECT ticker, MAX(report_date) AS max_date
+                FROM fundamentals GROUP BY ticker
+            ) latest ON f.ticker = latest.ticker AND f.report_date = latest.max_date
+            """,
+            conn,
+        )
+    else:
+        fund_raw = pd.DataFrame(columns=[
+            "ticker", "pe_ratio", "fcf_yield", "ev_ebitda", "shareholder_yield",
+            "market_cap", "total_equity", "shares_outstanding", "revenue",
+            "total_debt", "cash", "free_cash_flow", "buyback_yield",
+            "dividend_yield",
+        ])
     fund = fund_raw.drop_duplicates("ticker")
 
     latest_prices = pd.read_sql_query(
@@ -40,6 +48,16 @@ def calculate_all(universe: pd.DataFrame) -> pd.DataFrame:
     conn.close()
 
     df = universe.copy()
+    rank_cols = [
+        "rank_earnings_yield", "rank_book_to_price", "rank_fcf_yield_v",
+        "rank_ev_ebitda_inv", "rank_sh_yield", "rank_sales_to_ev",
+    ]
+    if fund.empty:
+        for col in rank_cols:
+            df[col] = 50.0
+        df["value_score"] = 50.0
+        return df[["ticker", "sector", "value_score"] + rank_cols]
+
     df = df.merge(fund, on="ticker", how="left")
     df = df.merge(latest_prices, on="ticker", how="left")
 
@@ -84,7 +102,6 @@ def calculate_all(universe: pd.DataFrame) -> pd.DataFrame:
     for col in ["earnings_yield", "book_to_price", "fcf_yield_v", "ev_ebitda_inv", "sh_yield", "sales_to_ev"]:
         df[f"rank_{col}"] = apply_sector_ranks(df, col)
 
-    rank_cols = [c for c in df.columns if c.startswith("rank_")]
     df["value_score"] = df[rank_cols].mean(axis=1)
 
     return df[["ticker", "sector", "value_score"] + rank_cols]

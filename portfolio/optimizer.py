@@ -1,4 +1,6 @@
 """Conviction-tilt optimizer — simpler fallback to MVO."""
+from __future__ import annotations
+
 import os
 import sqlite3
 

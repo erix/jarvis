@@ -4,6 +4,8 @@ Layer 2 Entry Point — Scoring Engine
 Run: python run_scoring.py              # Score all tickers
      python run_scoring.py --ticker AAPL  # Single stock
 """
+from __future__ import annotations
+
 import argparse
 import logging
 import os

@@ -1,4 +1,6 @@
 """Factor spread monitor: Z-score portfolio factor exposures vs history."""
+from __future__ import annotations
+
 import logging
 import os
 import sqlite3

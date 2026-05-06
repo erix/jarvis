@@ -162,10 +162,7 @@ def render():
         pivot = monthly_df.pivot(index="year", columns="month", values="return")
         pivot = pivot.reindex(columns=[m for m in MONTHS if m in pivot.columns])
 
-        styled = pivot.style.format("{:.1%}").background_gradient(
-            cmap="RdYlGn", axis=None, vmin=-0.05, vmax=0.05
-        )
-        st.dataframe(styled, use_container_width=True)
+        st.dataframe(pivot.style.format("{:.1%}"), use_container_width=True)
 
     else:
         st.info("No portfolio history yet. Run `python run_portfolio.py` to generate history.")

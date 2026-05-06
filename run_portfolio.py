@@ -10,6 +10,7 @@ Usage:
   python run_portfolio.py --optimize-method conviction # Use conviction-tilt
 """
 import argparse
+import json
 import logging
 import os
 import sqlite3
@@ -22,6 +23,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "cache", "jarvis.db")
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
+PENDING_TRADES_PATH = os.path.join(os.path.dirname(__file__), "output", "pending_trades.json")
 
 
 def _setup_logging() -> None:
@@ -60,6 +62,24 @@ def _load_scores() -> pd.DataFrame:
     )
     conn.close()
     return df
+
+
+def _write_pending_trades(trades: dict) -> int:
+    """Persist Layer 4 trade deltas for Layer 6 execution dry-run/live review."""
+    os.makedirs(os.path.dirname(PENDING_TRADES_PATH), exist_ok=True)
+    rows = []
+    for ticker, trade in sorted(trades.items()):
+        rows.append({
+            "ticker": ticker,
+            "action": trade["action"],
+            "shares": trade["shares"],
+            "signal_price": trade.get("price", 0.0),
+            "estimated_cost": trade.get("estimated_cost", 0.0),
+            "dollar_value": trade.get("dollar_value", 0.0),
+        })
+    with open(PENDING_TRADES_PATH, "w", encoding="utf-8") as f:
+        json.dump(rows, f, indent=2)
+    return len(rows)
 
 
 def _show_current(logger: logging.Logger) -> None:
@@ -186,6 +206,7 @@ def main() -> None:
         aum=aum,
         turnover_budget_pct=turnover_budget,
     )
+    pending_count = _write_pending_trades(trade_result.get("trades", {}))
 
     # 7. What-if: print and exit
     if args.whatif:
@@ -218,6 +239,7 @@ def main() -> None:
         saved += 1
 
     logger.info("Saved %d pending positions", saved)
+    logger.info("Wrote %d pending trades to %s", pending_count, PENDING_TRADES_PATH)
 
     # 9. Print summary
     longs = opt_result.get("long_tickers", [])
@@ -246,6 +268,7 @@ def main() -> None:
     if ev:
         print(f"Expected vol:    {ev*100:.1f}%")
     print(f"Trades: {len(trade_result.get('trades', {}))}")
+    print(f"Pending trade file: output/pending_trades.json ({pending_count} trades)")
     print(f"Est. transaction cost: ${trade_result.get('total_cost', 0):,.0f}")
     print(f"Turnover: {trade_result.get('turnover_pct', 0):.1f}%")
     if advice.get("warnings"):

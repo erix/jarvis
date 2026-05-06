@@ -1,4 +1,6 @@
 """Stress testing: 6 historical/synthetic scenarios applied to current portfolio."""
+from __future__ import annotations
+
 import logging
 import os
 import sqlite3
@@ -80,8 +82,10 @@ def _identify_worst_sector(positions_df: pd.DataFrame, weights_dict: dict[str, f
     long_pos = positions_df[positions_df["shares"] > 0]
     if long_pos.empty:
         return None
-    sector_exposure = long_pos.groupby("sector").apply(
-        lambda g: (g["shares"] * g["current_price"]).sum()
+    sector_exposure = (
+        long_pos.assign(position_value=long_pos["shares"] * long_pos["current_price"])
+        .groupby("sector")["position_value"]
+        .sum()
     )
     return str(sector_exposure.idxmax()) if not sector_exposure.empty else None
 

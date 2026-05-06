@@ -1,4 +1,6 @@
 """Composite score: weighted blend of all 8 factors, re-ranked within sector."""
+from __future__ import annotations
+
 import pandas as pd
 import numpy as np
 from .regime_weights import get_weights
@@ -42,12 +44,16 @@ def calculate_composite(scores: pd.DataFrame, vix: float | None = None) -> pd.Da
     # Re-rank within sector
     df["composite_score"] = apply_sector_ranks(df, "composite_raw")
 
-    # Long/short candidates: top 30 composite within each sector = long, bottom 30 = short
+    # Long/short candidates: top/bottom 30 within each sector, capped to avoid overlap
+    # in sectors with fewer than 60 names.
     df["rank_in_sector"] = df.groupby("sector")["composite_score"].rank(ascending=False, method="first")
     df["sector_size"] = df.groupby("sector")["sector"].transform("count")
+    df["candidate_bucket_size"] = np.minimum(30, np.floor(df["sector_size"] / 2)).astype(int)
 
-    df["is_long_candidate"] = (df["rank_in_sector"] <= 30).astype(int)
-    df["is_short_candidate"] = (df["rank_in_sector"] > df["sector_size"] - 30).astype(int)
+    df["is_long_candidate"] = (df["rank_in_sector"] <= df["candidate_bucket_size"]).astype(int)
+    df["is_short_candidate"] = (
+        df["rank_in_sector"] > df["sector_size"] - df["candidate_bucket_size"]
+    ).astype(int)
 
     df["regime"] = regime
     df["vix"] = vix_val

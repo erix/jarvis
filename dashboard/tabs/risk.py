@@ -14,9 +14,21 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "cache", "jarvis.d
 def _load_risk_state() -> dict:
     try:
         from risk.circuit_breakers import get_halt_info
-        from risk.state import get_latest_risk_state
+        from risk.state import get_recent_risk_states
         halt = get_halt_info()
-        state = get_latest_risk_state() or {}
+        latest = (get_recent_risk_states(days=1) or [{}])[0]
+        state = {
+            "daily_loss_pct": latest.get("daily_pnl", 0.0),
+            "weekly_loss_pct": latest.get("weekly_pnl", 0.0),
+            "max_drawdown_pct": latest.get("drawdown_pct", 0.0),
+            "gross_exposure_pct": latest.get("gross_exposure", 0.0),
+            "net_exposure_pct": latest.get("net_exposure", 0.0),
+            "net_beta": latest.get("portfolio_beta", 0.0),
+            "vix": latest.get("vix"),
+            "factor_risk_pct": latest.get("factor_risk_pct"),
+            "specific_risk_pct": latest.get("specific_risk_pct"),
+            "max_mctr_ticker": latest.get("max_mctr_ticker"),
+        }
         return {"halt": halt, "state": state}
     except Exception as exc:
         logger.warning("Risk state load error: %s", exc)
@@ -26,8 +38,9 @@ def _load_risk_state() -> dict:
 @st.cache_data(ttl=300)
 def _load_stress_tests() -> list[dict]:
     try:
-        from risk.stress import run_stress_tests
-        return run_stress_tests() or []
+        from risk.stress import run_stress_test
+        df = run_stress_test(aum=10_000_000)
+        return df.to_dict("records") if df is not None and not df.empty else []
     except Exception as exc:
         logger.warning("Stress tests error: %s", exc)
         return []
@@ -36,8 +49,27 @@ def _load_stress_tests() -> list[dict]:
 @st.cache_data(ttl=300)
 def _load_factor_risk() -> dict:
     try:
-        from risk.factor_risk_model import compute_factor_risk
-        return compute_factor_risk() or {}
+        from risk.factor_risk_model import decompose_portfolio
+        positions = _load_positions()
+        weights = {}
+        for p in positions:
+            price = p.get("current_price") or p.get("entry_price") or 0
+            weights[p["ticker"]] = (p.get("shares") or 0) * price / 10_000_000
+        result = decompose_portfolio(weights)
+        mctr = []
+        for ticker, mctr_pct in result.get("mctr_pct", {}).items():
+            mctr.append({
+                "ticker": ticker,
+                "mctr_pct": round(mctr_pct, 2),
+                "weight_pct": round(result.get("weight_pct", {}).get(ticker, 0.0), 2),
+            })
+        mctr = sorted(mctr, key=lambda r: abs(r["mctr_pct"]), reverse=True)
+        return {
+            "factor_risk_pct": result.get("factor_pct", 0.0),
+            "specific_risk_pct": result.get("specific_pct", 100.0),
+            "mctr": mctr,
+            "factor_contributions": [],
+        }
     except Exception as exc:
         logger.warning("Factor risk error: %s", exc)
         return {}
@@ -136,8 +168,8 @@ def render():
     with col_left:
         st.markdown("### Risk Decomposition")
         factor_risk = _load_factor_risk()
-        factor_pct = factor_risk.get("factor_risk_pct", 20)
-        specific_pct = 100 - factor_pct
+        factor_pct = factor_risk.get("factor_risk_pct", state.get("factor_risk_pct") or 20)
+        specific_pct = factor_risk.get("specific_risk_pct", 100 - factor_pct)
 
         fig = go.Figure(go.Pie(
             labels=["Factor Risk", "Specific Risk"],
@@ -222,39 +254,28 @@ def render():
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
-    # Correlation heatmap
-    st.markdown("### Correlation Heatmap (Long × Short Book)")
+    # Correlation summary
+    st.markdown("### Correlation Summary")
     try:
-        from risk.correlation_monitor import compute_correlation_matrix
-        corr_result = compute_correlation_matrix()
-        if corr_result and corr_result.get("matrix") is not None:
-            import numpy as np
-            mat = corr_result["matrix"]
-            labels = corr_result.get("tickers", [])
-
-            fig = go.Figure(go.Heatmap(
-                z=mat,
-                x=labels,
-                y=labels,
-                colorscale=[
-                    [0.0, COLORS["green"]],
-                    [0.5, COLORS["card"]],
-                    [1.0, COLORS["red"]],
-                ],
-                zmin=-1, zmax=1,
-                hovertemplate="%{x} vs %{y}: %{z:.2f}<extra></extra>",
-                colorbar=dict(tickfont=dict(color="#e2e8f0"), thickness=12),
-            ))
-            layout = dict(**PLOTLY_LAYOUT)
-            layout["height"] = 400
-            layout["xaxis"] = dict(tickfont=dict(size=9, color="#94a3b8"), tickangle=-45)
-            layout["yaxis"] = dict(tickfont=dict(size=9, color="#94a3b8"))
-            fig.update_layout(**layout)
-            st.plotly_chart(fig, use_container_width=True)
-
-            eff_bets = corr_result.get("effective_bets")
-            if eff_bets:
-                st.caption(f"Effective independent bets: **{eff_bets:.1f}**")
+        from risk.correlation_monitor import check_correlations
+        positions = _load_positions()
+        weights = {}
+        for p in positions:
+            price = p.get("current_price") or p.get("entry_price") or 0
+            weights[p["ticker"]] = (p.get("shares") or 0) * price / 10_000_000
+        corr_result = check_correlations(weights_dict=weights)
+        if corr_result:
+            long_book = corr_result.get("long_book", {})
+            short_book = corr_result.get("short_book", {})
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Long Avg Corr", f"{long_book.get('avg_corr', 0):.2f}")
+            c2.metric("Long Eff. Bets", f"{long_book.get('effective_bets', 0):.1f}")
+            c3.metric("Short Avg Corr", f"{short_book.get('avg_corr', 0):.2f}")
+            c4.metric("Short Eff. Bets", f"{short_book.get('effective_bets', 0):.1f}")
+            pairs = corr_result.get("high_corr_pairs", [])
+            if pairs:
+                import pandas as pd
+                st.dataframe(pd.DataFrame(pairs), use_container_width=True, hide_index=True)
         else:
             st.info("Correlation data not available.")
     except Exception as exc:

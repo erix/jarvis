@@ -3,6 +3,8 @@
 Each day: r_i = alpha + sum_k(beta_k * F_k_i) + epsilon_i
 Factor exposures are the 8 standardized factor scores from the scores table.
 """
+from __future__ import annotations
+
 import os
 import sqlite3
 

@@ -1,15 +1,18 @@
 """Factor 6: Short Interest — 3 sub-factors. For LONGS: declining SI = better."""
 import pandas as pd
 import numpy as np
-from ._base import get_db, apply_sector_ranks
+from ._base import get_db, apply_sector_ranks, table_exists
 
 
 def calculate_all(universe: pd.DataFrame) -> pd.DataFrame:
     conn = get_db()
-    si = pd.read_sql_query(
-        "SELECT ticker, date, short_pct_float, days_to_cover FROM short_interest ORDER BY ticker, date",
-        conn,
-    )
+    if table_exists(conn, "short_interest"):
+        si = pd.read_sql_query(
+            "SELECT ticker, date, short_pct_float, days_to_cover FROM short_interest ORDER BY ticker, date",
+            conn,
+        )
+    else:
+        si = pd.DataFrame(columns=["ticker", "date", "short_pct_float", "days_to_cover"])
     conn.close()
 
     df = universe.copy()

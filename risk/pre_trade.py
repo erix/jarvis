@@ -2,6 +2,8 @@
 
 Closing/covering trades are ALWAYS approved — unwinding is never blocked.
 """
+from __future__ import annotations
+
 import logging
 import os
 import sqlite3
