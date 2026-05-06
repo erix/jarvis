@@ -40,6 +40,13 @@ RUNNERS = [
         help_text="Updates universe and price bars only.",
     ),
     Runner(
+        key="macro",
+        label="Refresh Macro",
+        command=_python_cmd("run_data.py", "--macro-only"),
+        timeout_seconds=600,
+        help_text="Refreshes FRED rates, credit, inflation, and growth series only.",
+    ),
+    Runner(
         key="score_all",
         label="Run Scoring",
         command=_python_cmd("run_scoring.py"),
@@ -97,6 +104,7 @@ FACTOR_INPUTS = [
     ("Prices", "daily_prices", "momentum, revisions, VIX/regime"),
     ("Fundamentals", "fundamentals", "value, quality, growth"),
     ("Short interest", "short_interest", "short-interest factor"),
+    ("Macro", "macro_observations", "rates, credit, macro risk"),
     ("Insider filings", "insider_transactions", "insider factor"),
     ("13F holdings", "institutional_holdings", "institutional factor"),
 ]

@@ -25,6 +25,9 @@ from data.market_data import update_prices, get_price_count
 from data.fundamentals import update_fundamentals, get_fundamental_count
 from data.short_interest import update_short_interest, get_short_interest_count
 from data.transcripts import update_transcripts, get_transcript_count
+from data.estimates import update_estimates
+from data.earnings_calendar import update_earnings_calendar
+from data.macro import update_macro
 
 
 def _setup_logging(config: dict) -> None:
@@ -53,6 +56,11 @@ def main() -> None:
     parser.add_argument("--no-13f", action="store_true", help="Skip 13F institutional holdings")
     parser.add_argument("--tickers", nargs="+", help="Limit to specific tickers (for testing)")
     parser.add_argument("--prices-only", action="store_true", help="Only update prices")
+    parser.add_argument("--no-estimates", action="store_true", help="Skip analyst estimates")
+    parser.add_argument("--no-calendar", action="store_true", help="Skip earnings calendar")
+    parser.add_argument("--no-macro", action="store_true", help="Skip FRED macro data")
+    parser.add_argument("--macro-only", action="store_true", help="Only update FRED macro data")
+    parser.add_argument("--with-transcripts", action="store_true", help="Enable paid FMP transcript fetch")
     args = parser.parse_args()
 
     config = _load_config()
@@ -71,12 +79,26 @@ def main() -> None:
         "fundamental_records": 0,
         "filings": 0,
         "insider_transactions": 0,
+        "institutional_holdings": 0,
         "short_interest": 0,
+        "estimates": 0,
+        "earnings_calendar": 0,
+        "macro_observations": 0,
         "transcripts": 0,
     }
 
+    if args.macro_only:
+        logger.info("[macro-only] Updating FRED macro data...")
+        try:
+            stats["macro_observations"] = update_macro()
+        except Exception as e:
+            logger.error("Macro update failed: %s", e)
+            errors += 1
+        _print_summary(stats, errors, start_time)
+        return
+
     # ── Step 1: Universe ────────────────────────────────────────────
-    logger.info("[1/6] Updating universe (S&P 500 + benchmarks)...")
+    logger.info("[1/10] Updating universe (S&P 500 + benchmarks)...")
     try:
         universe = get_universe()
         stats["tickers"] = len(universe)
@@ -98,7 +120,7 @@ def main() -> None:
         sys.exit(1)
 
     # ── Step 2: Prices ──────────────────────────────────────────────
-    logger.info("[2/6] Updating daily prices (lookback=%d years)...", config["data"]["lookback_years"])
+    logger.info("[2/10] Updating daily prices (lookback=%d years)...", config["data"]["lookback_years"])
     try:
         price_results = update_prices(
             lookback_years=config["data"]["lookback_years"],
@@ -116,7 +138,7 @@ def main() -> None:
         return
 
     # ── Step 3: Fundamentals ────────────────────────────────────────
-    logger.info("[3/6] Updating fundamentals (financial statements + ratios)...")
+    logger.info("[3/10] Updating fundamentals (financial statements + ratios)...")
     try:
         sp500_tickers = [t["symbol"] for t in universe if not t["is_benchmark"]]
         if args.tickers:
@@ -129,16 +151,15 @@ def main() -> None:
 
     # ── Step 4: SEC Filings ─────────────────────────────────────────
     if args.no_filings:
-        logger.info("[4/6] Skipping SEC filings (--no-filings)")
+        logger.info("[4/10] Skipping SEC filings (--no-filings)")
     else:
-        logger.info("[4/6] Updating SEC filings (10-K, 10-Q, 8-K, Form 4%s)...",
-                    ", 13F" if not args.no_13f else "")
+        logger.info("[4/10] Updating SEC filings (10-K, 10-Q, 8-K, Form 4)...")
         try:
             from data.filings import update_filings, get_filing_counts
             sp500_only = [t["symbol"] for t in universe if not t["is_benchmark"]]
             if args.tickers:
                 sp500_only = args.tickers
-            counts = update_filings(tickers=sp500_only, no_13f=args.no_13f)
+            counts = update_filings(tickers=sp500_only, no_13f=True)
             stats["filings"] = counts["filings"]
             stats["insider_transactions"] = counts["insider"]
             logger.info("Filings: %d metadata records, %d insider transactions",
@@ -147,8 +168,20 @@ def main() -> None:
             logger.error("Filings update failed: %s", e)
             errors += 1
 
+    if args.no_13f:
+        logger.info("[5/10] Skipping 13F institutional holdings (--no-13f)")
+    else:
+        logger.info("[5/10] Updating 13F institutional holdings...")
+        try:
+            from data.institutional import update_institutional_holdings
+            stats["institutional_holdings"] = update_institutional_holdings()
+            logger.info("Institutional holdings: %d records stored", stats["institutional_holdings"])
+        except Exception as e:
+            logger.error("Institutional holdings update failed: %s", e)
+            errors += 1
+
     # ── Step 5: Short Interest ──────────────────────────────────────
-    logger.info("[5/6] Updating short interest...")
+    logger.info("[6/10] Updating short interest...")
     try:
         sp500_only = [t["symbol"] for t in universe if not t["is_benchmark"]]
         if args.tickers:
@@ -159,8 +192,52 @@ def main() -> None:
         logger.error("Short interest update failed: %s", e)
         errors += 1
 
-    # ── Step 6: Transcripts ─────────────────────────────────────────
-    logger.info("[6/6] Updating earnings transcripts (requires FMP_API_KEY)...")
+    # ── Step 7: Analyst Estimates ───────────────────────────────────
+    if args.no_estimates:
+        logger.info("[7/10] Skipping analyst estimates (--no-estimates)")
+    else:
+        logger.info("[7/10] Updating analyst estimate snapshots...")
+        try:
+            sp500_only = [t["symbol"] for t in universe if not t["is_benchmark"]]
+            if args.tickers:
+                sp500_only = args.tickers
+            stats["estimates"] = update_estimates(tickers=sp500_only)
+            logger.info("Analyst estimates: %d snapshots stored", stats["estimates"])
+        except Exception as e:
+            logger.error("Analyst estimates update failed: %s", e)
+            errors += 1
+
+    # ── Step 8: Earnings Calendar ───────────────────────────────────
+    if args.no_calendar:
+        logger.info("[8/10] Skipping earnings calendar (--no-calendar)")
+    else:
+        logger.info("[8/10] Updating earnings calendar...")
+        try:
+            sp500_only = [t["symbol"] for t in universe if not t["is_benchmark"]]
+            if args.tickers:
+                sp500_only = args.tickers
+            stats["earnings_calendar"] = update_earnings_calendar(tickers=sp500_only)
+            logger.info("Earnings calendar: %d rows stored", stats["earnings_calendar"])
+        except Exception as e:
+            logger.error("Earnings calendar update failed: %s", e)
+            errors += 1
+
+    # ── Step 9: Macro ───────────────────────────────────────────────
+    if args.no_macro:
+        logger.info("[9/10] Skipping FRED macro data (--no-macro)")
+    else:
+        logger.info("[9/10] Updating FRED macro data...")
+        try:
+            stats["macro_observations"] = update_macro()
+            logger.info("Macro observations: %d rows stored", stats["macro_observations"])
+        except Exception as e:
+            logger.error("Macro update failed: %s", e)
+            errors += 1
+
+    # ── Step 10: Transcripts ────────────────────────────────────────
+    if args.with_transcripts:
+        os.environ["JARVIS_ENABLE_FMP_TRANSCRIPTS"] = "true"
+    logger.info("[10/10] Updating earnings transcripts (disabled unless --with-transcripts)...")
     try:
         sp500_only = [t["symbol"] for t in universe if not t["is_benchmark"]]
         if args.tickers:
@@ -187,7 +264,11 @@ def _print_summary(stats: dict, errors: int, start_time: float) -> None:
     print(f"Fundamental records:       {stats['fundamental_records']}")
     print(f"Filings cached:            {stats['filings']}")
     print(f"Insider transactions:      {stats['insider_transactions']}")
+    print(f"Institutional holdings:    {stats.get('institutional_holdings', 0)}")
     print(f"Short interest records:    {stats['short_interest']}")
+    print(f"Analyst estimate snapshots:{stats.get('estimates', 0)}")
+    print(f"Earnings calendar rows:    {stats.get('earnings_calendar', 0)}")
+    print(f"Macro observations:        {stats.get('macro_observations', 0)}")
     print(f"Transcripts fetched:       {stats['transcripts']}")
     print(f"Errors:                    {errors}")
     print(f"Runtime:                   {minutes}m {seconds}s")
@@ -195,11 +276,14 @@ def _print_summary(stats: dict, errors: int, start_time: float) -> None:
 
     logging.getLogger("run_data").info(
         "Layer 1 complete: %d tickers, %d price bars, %d fundamentals, "
-        "%d filings, %d insider txns, %d short interest, %d transcripts — "
+        "%d filings, %d insider txns, %d institutional holdings, "
+        "%d short interest, %d estimates, %d earnings calendar rows, "
+        "%d macro observations, %d transcripts — "
         "%d errors in %dm %ds",
         stats["tickers"], stats["price_bars"], stats["fundamental_records"],
-        stats["filings"], stats["insider_transactions"], stats["short_interest"],
-        stats["transcripts"], errors, minutes, seconds
+        stats["filings"], stats["insider_transactions"], stats.get("institutional_holdings", 0),
+        stats["short_interest"], stats.get("estimates", 0), stats.get("earnings_calendar", 0),
+        stats.get("macro_observations", 0), stats["transcripts"], errors, minutes, seconds
     )
 
 

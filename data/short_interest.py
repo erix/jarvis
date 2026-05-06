@@ -101,6 +101,7 @@ def update_short_interest(tickers: Optional[List[str]] = None) -> int:
     conn = _get_db(config)
     _ensure_schema(conn)
 
+    use_fmp = os.environ.get("JARVIS_ENABLE_FMP_DATA", "").lower() in {"1", "true", "yes"}
     fmp_key = os.environ.get("FMP_API_KEY", "")
 
     if tickers is None:
@@ -111,7 +112,7 @@ def update_short_interest(tickers: Optional[List[str]] = None) -> int:
     for ticker in tqdm(tickers, desc="Fetching short interest", unit="ticker"):
         data = None
 
-        if fmp_key:
+        if use_fmp and fmp_key:
             data = _fetch_fmp(ticker, fmp_key)
 
         if data is None:

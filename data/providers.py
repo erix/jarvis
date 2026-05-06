@@ -150,7 +150,8 @@ class ProviderRouter:
         priority = priority or ["fmp", "polygon", "yfinance"]
         available: Dict[str, DataProvider] = {}
 
-        if fmp_key:
+        use_fmp = os.environ.get("JARVIS_ENABLE_FMP_DATA", "").lower() in {"1", "true", "yes"}
+        if use_fmp and fmp_key:
             available["fmp"] = FMPProvider(fmp_key)
         if polygon_key:
             available["polygon"] = PolygonProvider(polygon_key)

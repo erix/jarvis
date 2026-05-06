@@ -49,18 +49,25 @@ def _fetch_transcripts_fmp(ticker: str, api_key: str) -> List[Dict]:
     params = {"apikey": api_key, "limit": 8}
     try:
         resp = requests.get(url, params=params, timeout=20)
-        resp.raise_for_status()
+        if not resp.ok:
+            logger.warning("FMP transcript fetch failed for %s: HTTP %s", ticker, resp.status_code)
+            return []
         data = resp.json()
         if isinstance(data, list):
             return data
     except Exception as e:
-        logger.warning("FMP transcript fetch failed for %s: %s", ticker, e)
+        logger.warning("FMP transcript fetch failed for %s: %s", ticker, e.__class__.__name__)
     return []
 
 
 def update_transcripts(tickers: Optional[List[str]] = None) -> int:
-    """Fetch and store earnings transcripts. Skips silently if no FMP key."""
+    """Fetch and store earnings transcripts. Disabled unless explicitly enabled."""
     config = _load_config()
+    enabled = os.environ.get("JARVIS_ENABLE_FMP_TRANSCRIPTS", "").lower() in {"1", "true", "yes"}
+    if not enabled:
+        logger.info("FMP transcripts disabled - set JARVIS_ENABLE_FMP_TRANSCRIPTS=true to enable")
+        return 0
+
     api_key = (os.environ.get("FMP_API_KEY") or "").strip()
     if not api_key or api_key.startswith("#") or len(api_key) < 8:
         logger.warning("FMP_API_KEY not set — skipping transcript fetch")
