@@ -31,7 +31,7 @@ Built from a 7-layer specification extracted frame-by-frame from a video walkthr
 │  8 factors × 27 sub-factors, sector-relative 0–100 ranks  │
 ├─────────────────────────────────────────────────────────────┤
 │  LAYER 1 — Data Infrastructure                             │
-│  S&P 500 universe, OHLCV, fundamentals, insider, 13F, VIX │
+│  Universe, OHLCV, fundamentals, FRED macro, SEC/13F, VIX  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -69,8 +69,12 @@ IB_CLIENT_ID=1
 
 # Optional — enhances data quality
 POLYGON_API_KEY=
-FMP_API_KEY=
-FRED_API_KEY=
+FRED_API_KEY=                    # Free St. Louis Fed macro/rates/credit data
+FMP_API_KEY=                     # Optional paid transcripts only
+
+# FMP is disabled by default so free-tier keys do not produce noisy 403s.
+JARVIS_ENABLE_FMP_DATA=false
+JARVIS_ENABLE_FMP_TRANSCRIPTS=false
 
 # Model selection (OpenRouter naming)
 JARVIS_MODEL=anthropic/claude-sonnet-4-6
@@ -90,9 +94,11 @@ You can also do this from the dashboard under **VII Settings**.
 ### 4. Initialise Database
 
 ```bash
-python run_data.py          # First run: ~1–2 hours for full S&P 500
-# Subsequent runs: ~10 min (incremental)
+python run_data.py --no-filings --no-13f    # Free-tier daily refresh
+python run_data.py --macro-only             # FRED macro/rates/credit refresh
 ```
+
+The free daily refresh uses Wikipedia, yfinance, FRED, and optional SEC data. A full SEC/Form 4/13F refresh is still available with `python run_data.py`, but it is slower and better suited to overnight runs.
 
 ### 5. Score Universe
 
@@ -112,7 +118,7 @@ python run_dashboard.py     # Opens http://localhost:8502
 
 | Script | What it does | Typical use |
 |--------|-------------|-------------|
-| `run_data.py` | Refresh market data & fundamentals | Daily before market open |
+| `run_data.py` | Refresh data layer | `--no-filings --no-13f` for daily free-tier refresh |
 | `run_scoring.py` | Recalculate factor scores | After `run_data.py` |
 | `run_analysis.py` | Claude AI qualitative analysis | On-demand per ticker |
 | `run_portfolio.py` | Generate target portfolio | `--whatif` for preview |
@@ -122,9 +128,22 @@ python run_dashboard.py     # Opens http://localhost:8502
 | `run_dashboard.py` | Launch Streamlit UI | As needed |
 | `run_daily.py` | Full pipeline (data + score + report) | Cron/launchd |
 
+Useful `run_data.py` flags:
+
+| Flag | Use |
+|------|-----|
+| `--prices-only` | Fast price refresh for market data only |
+| `--no-filings` | Skip slow SEC 10-K/10-Q/8-K/Form 4 ingestion |
+| `--no-13f` | Skip tracked-fund 13F ingestion |
+| `--no-estimates` | Skip yfinance analyst estimate snapshots |
+| `--no-calendar` | Skip yfinance earnings calendar |
+| `--no-macro` | Skip FRED macro data |
+| `--macro-only` | Refresh only FRED macro/rates/credit data |
+| `--with-transcripts` | Opt into paid FMP transcript fetch |
+
 ---
 
-## Dashboard — 6 Tabs
+## Dashboard — 8 Tabs
 
 | Tab | Content |
 |-----|---------|
@@ -134,6 +153,8 @@ python run_dashboard.py     # Opens http://localhost:8502
 | **IV Performance** | Equity curve vs SPY, drawdown, monthly grid, rolling Sharpe |
 | **V Execution** | Slippage KPIs, order log, worst fills, short availability |
 | **VI Letter** | Daily LP letter with regenerate button |
+| **VII Settings** | AI provider settings, Codex login, provider test |
+| **VIII Ops** | Safe runner buttons for data, macro, scoring, risk, reporting, dry-run execution |
 
 Theme: `#0b0e17` background, `#6366f1` indigo accent, `#10b981` long, `#f43f5e` short.
 
@@ -159,16 +180,39 @@ This system is built with several hard constraints to prevent accidental live tr
 |--------|------|--------|
 | Wikipedia | S&P 500 constituents | `data/universe.py` |
 | yfinance | Daily OHLCV, fundamentals | `data/market_data.py`, `data/fundamentals.py` |
-| Financial Modeling Prep | Earnings transcripts, SEC filings | `data/transcripts.py` |
-| EDGAR | 10-K risk factors | `data/filings.py` |
-| Yahoo / FRED | VIX, credit spreads | risk model |
+| yfinance | Analyst estimate snapshots, earnings calendar, short-interest fallback | `data/estimates.py`, `data/earnings_calendar.py`, `data/short_interest.py` |
+| FRED | Rates, yield curves, credit spreads, inflation, labor, growth, financial stress | `data/macro.py` |
+| SEC EDGAR | 10-K, 10-Q, 8-K, Form 4 insider transactions | `data/filings.py` |
+| SEC EDGAR | Tracked-fund 13F holdings | `data/institutional.py` |
+| Financial Modeling Prep | Earnings transcripts only when explicitly enabled | `data/transcripts.py` |
+
+### Free-Tier Data Strategy
+
+The default data path is designed to work without paid FMP:
+
+```bash
+python run_data.py --no-filings --no-13f
+python run_data.py --macro-only
+python run_scoring.py
+```
+
+This populates prices, fundamentals, short interest, analyst estimates, earnings calendar, and FRED macro data. FMP is intentionally opt-in:
+
+```bash
+JARVIS_ENABLE_FMP_DATA=true
+JARVIS_ENABLE_FMP_TRANSCRIPTS=true
+python run_data.py --with-transcripts
+```
+
+Use paid FMP only if your plan includes the transcript endpoints. Otherwise leave it disabled.
 
 ---
 
 ## Key Design Decisions
 
 - **SQLite as single source of truth** — 15 tables, zero external DB dependencies.
-- **Sector-relative scoring** — all percentiles computed **within** each GICS sector.
+- **Sector-relative display scores** — factor/composite scores are shown as 0-100 sector percentiles.
+- **Raw-score candidate selection** — long/short candidate flags use raw composite thresholds plus sector caps, so names are not forced symmetrically into both books.
 - **OpenRouter, not Anthropic direct** — flexible model switching, lower latency.
 - **Regime-conditional weights** — factor blend shifts automatically with VIX.
 - **Incremental updates** — `run_data.py` skips already-cached bars on subsequent runs.
@@ -227,8 +271,9 @@ execution:
 ## Example Session
 
 ```bash
-# 1. Morning data refresh
+# 1. Morning free-tier data refresh
 python run_data.py --no-filings --no-13f
+python run_data.py --macro-only
 
 # 2. Re-score universe
 python run_scoring.py
